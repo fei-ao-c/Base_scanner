@@ -1,0 +1,19 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: 调试扫描器",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scanner.py",
+            "console": "integratedTerminal",
+            "args": [
+                "127.0.0.1",
+                "-o", "json"
+            ],
+            // 关键点：设置当前工作目录为项目根目录
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
+

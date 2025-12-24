@@ -1,0 +1,137 @@
+import argparse
+import json
+from datetime import datetime
+from port_scanner import PortScanner
+from web_scanner import sampilescanner
+from utils import load_config, save_results
+
+class VulnerabilityScanner:
+    def __init__(self):
+        self.config = load_config()
+        self.results = {
+            "scan_time":str(datetime.now()),
+            "target":"",
+            "vulnerabilities":[]
+        }
+    def run_port_scan(self, target):
+        """执行端口扫描"""
+        print(f"[*] 执行端口扫描: {target}")
+        
+        scanner = PortScanner()
+        open_ports = scanner.scan_target(target)
+        
+        # 获取服务信息
+        port_details = []
+        for port in open_ports:
+            service = scanner.get_service_name(port)
+            port_details.append({
+                "port": port,
+                "service": service,
+                "status": "open"
+            })
+        
+        self.results["open_ports"] = port_details
+        return port_details
+    
+    def run_web_scan(self,url):
+        print(f"开始扫描: {url}")
+        scanner=sampilescanner()
+        vulnerabilities=[]
+
+        # sql注入检测
+        sql_vulns=scanner.check_sql_injection(url)
+        vulnerabilities.extend(sql_vulns)
+
+        # XSS检测
+        xss_vulns=scanner.check_xss(url)
+        vulnerabilities.extend(xss_vulns)
+
+        #爬取链接并扫描
+        if self.config.get("crawl_depth",0)>0:
+            links=scanner.crawl_links(url)[:5]  # 限制爬取链接数量以节省时间
+            for link in links:
+                sql_vulns=scanner.check_sql_injection(link)
+                vulnerabilities.extend(sql_vulns)
+
+        self.results["vulnerabilities"]=vulnerabilities
+        return vulnerabilities
+    
+    def generate_report(self,format="json"):
+        timestamp=datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        if format=="json":
+            filename=f"output/scan_report_{timestamp}.json"
+            with open(filename,"w",encoding="utf-8") as f:
+                json.dump(self.results,f,ensure_ascii=False,indent=2)
+            print(f"[+]扫描报告已保存为 {filename}")
+
+        elif format=="txt":
+            filename=f"output/scan_report_{timestamp}.txt"
+            with open(filename,"w",encoding="utf-8") as f:
+                f.write("=" *50 + "\n")
+                f.write("扫描报告\n")
+                f.write("=" *50 + "\n")
+                f.write(f"扫描时间: {self.results['scan_time']}\n")
+                f.write(f"目标: {self.results['target']}\n\n")
+
+                f.write("开放端口:\n")
+                f.write("-" * 30 + "\n")
+                for port in self.results["open_ports"]:
+                    f.write(f"- 端口: {port['port']}, 服务: {port['service']}\n")
+                f.write("\n发现漏洞:\n")
+                for vuln in self.results["vulnerabilities"]:
+                    f.write(f"- 类型: {vuln['type']}\n")
+                    f.write(f" 可信度： {vuln['confidence']}\n")
+                    f.write(f"payload: {vuln.get('payload','N/A')}\n\n")
+                    f.write("-" * 30 + "\n")
+            
+            print(f"[+]扫描报告已保存为 {filename}")
+    def scan(self,target):
+        self.results["target"]=target
+        print(f"开始扫描目标: {target}")
+        print("[*]" + "=" *40)
+
+        #1.端口扫描
+        ports=self.run_port_scan(target)
+        #2.web漏洞扫描(如果发现http/https端口)
+        web_ports=[80,443,8080,8443]
+        for port_info in ports:
+            if port_info["port"] in web_ports:
+                protocol="https" if port_info["port"] in [443,8443] else "http"
+                url=f"{protocol}://{target}:{port_info['port']}/"
+                self.run_web_scan(url)
+                break
+        #3.生成报告
+        self.generate_report(format="json")
+        self.generate_report(format="txt")
+        #4.显示摘要
+        self.show_summary()
+
+    def show_summary(self):
+        print("\n" + "=" *50)
+        print("扫描摘要")
+        print("=" *50)
+        print(f"目标: {self.results['target']}")
+        print(f"扫描时间: {self.results['scan_time']}")
+        print(f"开放端口数量: {len(self.results.get('open_ports',[]))}")
+        print(f"发现漏洞数量: {len(self.results['vulnerabilities'])}")
+        if self.results['vulnerabilities']:
+            print("\n发现的漏洞:")
+            for vuln in self.results['vulnerabilities']:
+                print(f"- 类型: {vuln['type']}, 可信度: {vuln['confidence']}")
+        
+def main():
+    parser=argparse.ArgumentParser(description="简易漏洞扫描工具")
+    parser.add_argument("target",help="扫描目标IP或域名")
+    parser.add_argument("-p","--ports",help="扫描端口范围,例如 1-1000")
+    parser.add_argument("-o","--output",help="输出报告文件名",choices=["json","txt","all"],default="all")
+    args=parser.parse_args()
+    scanner=VulnerabilityScanner()
+    try:
+        scanner.scan(args.target)
+    except KeyboardInterrupt:
+        print("\n[-] 扫描被用户中断")
+    except Exception as e:
+        print(f"\n[-] 扫描过程中出现错误: {e}")
+if __name__=="__main__":
+    main()
