@@ -2,10 +2,12 @@ import argparse
 import json
 import os
 import sys
+import time
 from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
+    from config.logging_config import ScannerLogger
     from port_scanner import PortScanner
     from web_scanner import sampilescanner
     from utils import load_config, save_results, print_colored
@@ -15,56 +17,123 @@ except ImportError as e:
     sys.exit(1)
 
 class VulnerabilityScanner:
-    def __init__(self):
-        self.config = load_config()
+    def __init__(self,config=None,log_dir='logs'):
+        self.config = load_config() or config
+
+        #初始化日志系统
+        self.logger=ScannerLogger(log_dir=log_dir)
+        self.scan_id=self.logger.scanner_id
         self.results = {
+            "scan_id":self.scan_id,
             "scan_time":str(datetime.now()),
             "target":"",
             "open_ports": [],
             "vulnerabilities": [],
-            "scan_summary": {}
+            "scan_summary": {},
+            "logs": [] #存储日志信息    
         }
+        #记录初始化
+        self.logger.main_logger.info(f"初始化漏洞扫描器完成,扫描ID: {self.scan_id}")
+
+
     def run_port_scan(self, target):
         """执行端口扫描"""
         print(f"[*] 执行端口扫描: {target}")
-        
-        scanner = PortScanner()
-        open_ports = scanner.scan_target(target)
-        
-        # 获取服务信息
-        port_details = []
-        for port in open_ports:
-            service = scanner.get_service_name(port)
-            port_details.append({
-                "port": port,
-                "service": service,
-                "status": "open"
-            })
-        
-        self.results["open_ports"] = port_details
-        return port_details
-    
+        self.logger.log_scan_start(target,"端口扫描")
+        start_time=time.time()
+
+        try:
+            scanner = PortScanner(timeout=self.config.get("timeout",2),
+                                  max_threads=self.config.get("max_threads",50))
+            #获取要扫描的端口
+            ports_to_scan=self.config.get("common_ports",[])  #######标记
+            open_ports = scanner.scan_target(target,ports=ports_to_scan)
+
+            # 获取服务信息
+            port_details = []
+            for port in open_ports:
+                service = scanner.get_service_name(port)
+                port_details.append({
+                    "port": port,
+                    "service": service,
+                    "status": "open"
+                })
+                #记录日志
+                self.logger.log_port_scan_result(target,port,"open",service)
+            #记录扫描耗时
+            duration=time.time()-start_time
+            self.logger.log_performance("端口扫描",duration,target)
+            self.logger.main_logger.info(f"端口扫描完成: {target}, 开放端口数量: {len(open_ports)}")
+
+            #记录到结果中
+            self._add_log_entry("端口扫描完成", f"发现 {len(open_ports)} 个开放端口")
+            self.results["open_ports"] = port_details
+            return port_details
+        except Exception as e:
+            self.logger.main_logger.error(f"端口扫描失败: {target}, 错误: {e}", exc_info=True)
+            self._add_log_entry(f"端口扫描错误",str(e), level="ERROR")
+            return []
+
     def run_web_scan(self,url):
         print(f"开始扫描: {url}")
-        scanner=sampilescanner()
-        vulnerabilities=[]
+        self.logger.log_scan_start(url,"Web漏洞扫描")
+        start_time=time.time()
 
-        # sql注入检测
-        sql_vulns=scanner.check_sql_injection(url)
-        vulnerabilities.extend(sql_vulns)
-
-        # XSS检测
-        xss_vulns=scanner.check_xss(url)
-        vulnerabilities.extend(xss_vulns)
-
-        #爬取链接并扫描
         try:
-            links=scanner.crawl_links(url)[:5]  # 限制爬取链接数量以节省时间
-            for link in links:
-                link_sql_vulns=scanner.check_sql_injection(link)
-                vulnerabilities.extend(link_sql_vulns)
+            scanner=sampilescanner()
+            vulnerabilities=[]
+
+            # sql注入检测
+            self.logger.main_logger.info(f"开始SQL注入检测: {url}")
+            sql_vulns=scanner.check_sql_injection(url)
+
+            for vuln in sql_vulns:
+                vuln['url']=url
+                vulnerabilities.append(vuln)
+                self.logger.log_vulnerability_found(
+                    url,
+                    vuln['type'],
+                    vuln.get('confidence','未知'),
+                    vuln.get('payload')
+                )
+
+
+            # XSS检测
+            self.logger.main_logger.info(f"开始XSS检测: {url}")
+            xss_vulns=scanner.check_xss(url)
+            for vuln in xss_vulns:
+                vuln['url']=url
+                vulnerabilities.append(vuln)
+                self.logger.log_vulnerability_found(
+                    url,
+                    vuln['type'],
+                    vuln.get('confidence','未知'),
+                    vuln.get('payload')
+                )
+           # vulnerabilities.extend(xss_vulns)
+
+            #记录扫描耗时
+            duration=time.time()-start_time
+            self.logger.log_performance("Web漏洞扫描",duration,url)
+            self.logger.main_logger.info(f"Web漏洞扫描完成: {url}, 发现漏洞数量: {len(vulnerabilities)}")
+            self._add_log_entry("Web漏洞扫描完成:", f"{url}, 发现漏洞数量: {len(vulnerabilities)}")
+            return vulnerabilities
         except Exception as e:
-            print(f"爬取链接时出错: {e}")
+            self.logger.main_logger.error(f"web扫描失败: {url}, 错误: {e}", exc_info=True)
+            self._add_log_entry("web扫描错误",str(e), level="ERROR")
+            return []
+
+        #爬取链接并扫描(***未完成***)
+        # try:
+        #     links=scanner.crawl_links(url)[:5]  # 限制爬取链接数量以节省时间
+        #     for link in links:
+        #         link_sql_vulns=scanner.check_sql_injection(link)
+        #         vulnerabilities.extend(link_sql_vulns)
+        # except Exception as e:
+        #     print(f"爬取链接时出错: {e}")
+        # return vulnerabilities
+    
+
         # if self.config.get("crawl_depth",0)>0:
         #     links=scanner.crawl_links(url)[:5]  # 限制爬取链接数量以节省时间
         #     for link in links:
@@ -72,7 +141,7 @@ class VulnerabilityScanner:
         #         vulnerabilities.extend(sql_vulns)
 
         # self.results["vulnerabilities"]=vulnerabilities
-        return vulnerabilities
+        #return vulnerabilities
     
     # def generate_report(self,format="json"):
     #     timestamp=datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -104,6 +173,16 @@ class VulnerabilityScanner:
     #                 f.write("-" * 30 + "\n")
             
     #         print(f"[+]扫描报告已保存为 {filename}")
+    def _add_log_entry(self, action, message, level="INFO"):
+        """添加日志条目到结果中"""
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "action": action,
+            "message": message,
+            "level": level
+        }
+        self.results["logs"].append(log_entry)
+
     def scan(self,target):
         self.results["target"]=target
         print(f"开始扫描目标: {target}")
@@ -121,7 +200,7 @@ class VulnerabilityScanner:
                 if port_info["port"] in web_ports:
                     protocol="https" if port_info["port"] in [443,8443] else "http"
                     web_url=f"{protocol}://{target}:{port_info['port']}/"
-                    self.run_web_scan(web_url)
+                    # self.run_web_scan(web_url)
                     break
             if web_url:
                 vulns=self.run_web_scan(web_url)
@@ -150,6 +229,9 @@ class VulnerabilityScanner:
 
             #5.显示摘要
             self.show_summary()
+
+            self.logger.main_logger.info(f"扫描完成: {target}")
+            self._add_log_entry(f"扫描完成","所有扫描任务已完成。")
         except KeyboardInterrupt:
             print("\n[-] 扫描被用户中断")
             if self.results["open_ports"] or self.results["vulnerabilities"]:
@@ -199,6 +281,14 @@ class VulnerabilityScanner:
                     print(f"    Payload: {payload}")
 
             print("\n" + "=" * 50)
+
+            #记录摘要到日志
+            summary=self.results.get("scan_summary",{})
+            self.logger.main_logger.info(
+                f"扫描摘要: 目标: {self.results['target']}, "
+                f"开放端口: {summary.get('open_ports',[])}, "
+                f"发现漏洞: {summary.get('vulnerabilities', [])}"
+            )
         
 def main():
     parser=argparse.ArgumentParser(description="简易漏洞扫描工具")

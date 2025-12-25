@@ -1,47 +1,67 @@
 import socket
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
+import logging
 
 class PortScanner:
     def __init__(self,timeout=1,max_threads=100):
         self.timeout=timeout
         self.max_threads=max_threads
+
+        #获取日志记录器
+        self.logger=logging.getLogger('vuln_scanner.scan.port')
+
         self.common_ports=[21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143,
             443, 445, 993, 995, 1723, 3306, 3389, 5900, 8080]
     def scan_port(self,target,port):
+        """扫描单个端口"""
         try:
             sock=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
             sock.settimeout(self.timeout)
+
+            self.logger.debug(f"Scanning {target}:{port}")
+
             result=sock.connect_ex((target,port))
             sock.close()
 
             if result==0:
+                self.logger.debug(f"端口开放: {target}:{port}")
                 return port, "open"
             else:
                 return port, "closed"
+        except socket.timeout:
+            self.logger.debug(f"端口扫描超时: {target}:{port}")
+            return port, "timeout"
         except Exception as e:
+            self.logger.error(f"端口扫描错误: {target}:{port}, 错误: {e}", exc_info=True)
             return port, f"error: {str(e)}"
 
     def scan_target(self,target,ports=None):
+        """扫描目标的所有指定端口"""
         if ports is None:
             ports=self.common_ports
         
         open_ports=[]
 
-        print(f"开始扫描 {target}...")
+        # print(f"开始扫描 {target}...")
+        self.logger.info(f"开始扫描目标: {target}, 端口数量: {len(ports)}")
         with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
+            #提交所有端口扫描任务
             future_to_port={
                 executor.submit(self.scan_port,target,port):port
                 for port in ports} 
+            #收集结果
             for future in concurrent.futures.as_completed(future_to_port):
                 port=future_to_port[future]
                 try:
                     port_num,status=future.result()
                     if status=="open":
                         open_ports.append(port_num)
-                        print(f"[+] 端口 {port_num} 开放")
+                        # print(f"[+] 端口 {port_num} 开放")
+                        #self.logger.info(f"端口开放: {target}:{port_num} ")
                 except Exception as e:
                     print(f"[-] 端口 {port} 扫描出错: {e}")
+        self.logger.info(f"完成扫描目标: {target}, 开放端口数量: {len(open_ports)}")
         return sorted(open_ports)
     def get_service_name(self,port):
         services={

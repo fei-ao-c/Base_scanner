@@ -56,7 +56,7 @@ class sampilescanner:
                     "dhakkan"
                 ]
                 # 只打印响应摘要，避免大量输出
-                print(body[:400])
+                #print(body[:400])
                 for error in error_indicators:
                     if error in body:
                         vulnerabilities.append({

@@ -25,36 +25,32 @@ except ImportError:
         print(text)
 
 def load_config():
-    # 加载配置文件
-    default_config={
-        "timeout":2,
-        "max_threads":50,
-        "crawl_depth":2,
-        "output_dir":"output",
-        "user_agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+    # 1. 获取当前脚本文件的绝对路径
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 2. 构建相对于脚本所在目录的路径
+    config_path = os.path.join(current_dir, "config", "config.json")
+    
+    print(f"正在尝试加载: {config_path}") # 调试用，打印出实际路径
+    
+    default_config = {
+        "timeout": 2,
+        "max_threads": 50,
+        "crawl_depth": 2,
+        "output_dir": "output",
+        "user_agent": "Mozilla/5.0 ..."
     }
-    config_path=os.path.join("config","config.json")
-    print(f"加载配置文件: {config_path}")
+
     if os.path.exists(config_path):
         try:
-            with open(config_path,'r') as f:
-                user_config=json.load(f)
+            with open(config_path, 'r',encoding='utf-8') as f:
+                user_config = json.load(f)
                 default_config.update(user_config)
+                print_colored("配置文件加载成功", "green")
         except Exception as e:
-            print_colored(f"[-]加载配置文件出错: {e}，使用默认配置","yellow")
+            print_colored(f"[-] 加载配置文件出错: {e}，使用默认配置", "yellow")
     return default_config
-# def print_colored(test,color="green"):
-#     colors={
-#         "green":Fore.GREEN,
-#         "red":Fore.RED,
-#         "yellow":Fore.YELLOW,
-#         "blue":Fore.BLUE,
-#         "cyan":Fore.CYAN,
-#         "magenta":Fore.MAGENTA,
-#         "white":Fore.WHITE
-#     }
-#     color_code=colors.get(color.lower(),Fore.GREEN)
-#     print(f"{color_code}{test}{Style.RESET_ALL}")
+
 
 def save_results(results, filename, output_dir="output"):
     """
@@ -140,38 +136,6 @@ def save_text_summary(results, filename, output_dir="output"):
         print_colored(f"[-] 保存文本摘要失败: {e}", "yellow")
         return False
 
-# def format_results_for_display(results):
-#     """格式化结果用于控制台显示"""
-#     output = []
-    
-#     output.append("=" * 60)
-#     output.append("扫描结果")
-#     output.append("=" * 60)
-    
-#     output.append(f"目标: {results.get('target', 'N/A')}")
-#     output.append(f"扫描时间: {results.get('scan_time', 'N/A')}")
-    
-#     # 端口信息
-#     open_ports = results.get('open_ports', [])
-#     output.append(f"\n开放端口 ({len(open_ports)}个):")
-#     for port_info in open_ports:
-#         output.append(f"  [+] 端口 {port_info.get('port')}: {port_info.get('service')}")
-    
-#     # 漏洞信息
-#     vulnerabilities = results.get('vulnerabilities', [])
-#     output.append(f"\n发现漏洞 ({len(vulnerabilities)}个):")
-    
-#     for i, vuln in enumerate(vulnerabilities, 1):
-#         output.append(f"  {i}. {vuln.get('type', '未知漏洞')} ({vuln.get('confidence', '未知')})")
-#         if vuln.get('payload'):
-#             payload = str(vuln['payload'])
-#             if len(payload) > 50:
-#                 payload = payload[:50] + "..."
-#             output.append(f"     载荷: {payload}")
-    
-#     output.append("=" * 60)
-    
-#     return "\n".join(output)
 # modules/utils.py - 增强版本
 def format_results_for_display(results):
     """格式化结果用于控制台显示（增强版）"""
