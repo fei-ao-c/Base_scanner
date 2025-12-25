@@ -1,0 +1,9 @@
+# 忽略所有 .pyc 字节码文件
+*.pyc
+
+# 忽略 __pycache__ 目录（Python 3.2+ 生成）
+__pycache__/
+
+# 可选：忽略虚拟环境目录
+env/
+venv/

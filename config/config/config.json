@@ -1,8 +1,9 @@
 {
   "timeout": 2,
-  "max_threads": 100,
-  "crawl_depth": 2,
+  "max_threads": 50,
+  "crawl_depth": 1,
   "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  "output_dir": "output",
   "common_ports": [21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995, 1723, 3306, 3389, 5900, 8080],
   "risk_levels": {
     "high": ["SQL注入", "命令执行", "文件包含"],
