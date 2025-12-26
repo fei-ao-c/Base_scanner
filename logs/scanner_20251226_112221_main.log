@@ -1,6 +1,0 @@
-[2025-12-26 11:22:21] [INFO] [vuln_scanner.main] 初始化漏洞扫描器完成,扫描ID: scanner_20251226_112221
-[2025-12-26 11:22:49] [INFO] [vuln_scanner.main] 端口扫描完成: 127.0.0.1, 开放端口数量: 6
-[2025-12-26 11:22:49] [INFO] [vuln_scanner.main] 开始SQL注入检测: http://127.0.0.1:80/
-[2025-12-26 11:22:49] [INFO] [vuln_scanner.main] 开始XSS检测: http://127.0.0.1:80/
-[2025-12-26 11:22:49] [INFO] [vuln_scanner.main] Web漏洞扫描完成: http://127.0.0.1:80/, 发现漏洞数量: 4
-[2025-12-26 11:22:49] [INFO] [vuln_scanner.main] 扫描完成: 127.0.0.1

@@ -312,10 +312,37 @@ class VulnerabilityScanner:
 def main():
     parser=argparse.ArgumentParser(description="简易漏洞扫描工具")
     parser.add_argument("target",help="扫描目标IP或域名")
-    parser.add_argument("-p","--ports",help="扫描端口范围,例如 1-1000")
-    parser.add_argument("-o","--output",help="输出报告文件名",choices=["json","txt","all"],default="all")
+    parser.add_argument("-p","--ports",help="扫描端口范围,例如 1-1000") #现在不可指定
+    parser.add_argument("-o","--output",help="输出报告文件名",choices=["json","txt","all"],default="all")#现在不可指定
+    parser.add_argument("--log-dir",help="日志目录",default="logs")
+    parser.add_argument("--log-level",help="日志级别",choices=['DEBUG','INFO','WARNING','ERROR'],default="INFO")#现在不可指定
+    parser.add_argument("--no-log",help="禁用日志",action="store_true")
+    parser.add_argument("--view-log",help="查看日志",metavar="FILE")
+    parser.add_argument("--analyze-logs",help="分析日志",action="store_true")
     args=parser.parse_args()
-    scanner=VulnerabilityScanner()
+
+    #如果指定了日志相关的操作
+    if args.view_log:
+        from tools.log_viewer import LogViewer
+        viewer=LogViewer(log_dir=args.log_dir)
+        viewer.view_log(args.view_log)
+        return
+    
+    if args.analyze_logs:
+        from tools.log_viewer import LogViewer
+        viewer=LogViewer(log_dir=args.log_dir)
+        viewer.analyze_logs()
+        return
+    
+    if not args.target:
+        parser.error("需要指定目标地址")
+    scanner=VulnerabilityScanner(log_dir=args.log_dir)
+
+    # 设置日志级别
+    if args.log_level:
+        import logging
+        logging.getLogger('vuln_scanner').setLevel(getattr(logging, args.log_level))
+
     try:
         scanner.scan(args.target)
     except KeyboardInterrupt:

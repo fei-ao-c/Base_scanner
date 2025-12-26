@@ -1,3 +1,0 @@
-{"timestamp": "2025-12-25T17:24:31.959938", "level": "INFO", "logger": "vuln_scanner.scan", "module": "logging_config", "function": "log_scan_start", "line": 188, "message": "开始扫描: 127.0.0.1 (端口扫描)", "target": "127.0.0.1", "port": null, "vulnerability": null}
-{"timestamp": "2025-12-25T17:24:31.960578", "level": "INFO", "logger": "vuln_scanner.scan.port", "module": "port_scanner", "function": "scan_target", "line": 47, "message": "开始扫描目标: 127.0.0.1, 端口数量: 0", "target": null, "port": null, "vulnerability": null}
-{"timestamp": "2025-12-25T17:24:31.961012", "level": "INFO", "logger": "vuln_scanner.scan.port", "module": "port_scanner", "function": "scan_target", "line": 64, "message": "完成扫描目标: 127.0.0.1, 开放端口数量: 0", "target": null, "port": null, "vulnerability": null}

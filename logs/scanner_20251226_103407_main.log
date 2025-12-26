@@ -1,6 +1,0 @@
-[2025-12-26 10:34:07] [INFO] [vuln_scanner.main] 初始化漏洞扫描器完成,扫描ID: scanner_20251226_103407
-[2025-12-26 10:34:09] [INFO] [vuln_scanner.main] 端口扫描完成: testphp.vulnweb.com, 开放端口数量: 3
-[2025-12-26 10:34:09] [INFO] [vuln_scanner.main] 开始SQL注入检测: http://testphp.vulnweb.com:80/
-[2025-12-26 10:34:10] [INFO] [vuln_scanner.main] 开始XSS检测: http://testphp.vulnweb.com:80/
-[2025-12-26 10:34:15] [INFO] [vuln_scanner.main] Web漏洞扫描完成: http://testphp.vulnweb.com:80/, 发现漏洞数量: 0
-[2025-12-26 10:34:15] [INFO] [vuln_scanner.main] 扫描完成: testphp.vulnweb.com
