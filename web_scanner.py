@@ -1,6 +1,8 @@
 import requests
+import logging
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+from urllib.parse import urlparse
 
 # # 目标 URL
 # url = "http://myip.ipip.net/"
@@ -21,6 +23,8 @@ class sampilescanner:
         self.session.headers.update({
             "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; rv:109.0) Gecko/20100101 Firefox/115.0"
         })
+        #获取日志记录器
+        self.logger=logging.getLogger('vuln_scanner.scan.port')
     def check_sql_injection(self, url):
         # SQL注入扫描
                  
@@ -102,13 +106,20 @@ class sampilescanner:
         try:
             response=self.session.get(url,timeout=10)
             soup=BeautifulSoup(response.text,"html.parser")
+
+            # 解析基础URL的域名
+            base_domain = urlparse(url).netloc
             links=[]
             for link in soup.find_all("a",href=True):
                 href=link['href']
+                # 解析链接的域名
                 absolute_url=urljoin(url,href)
-                if absolute_url.startswith(url):
+                link_domain = urlparse(absolute_url).netloc                
+                # 只爬取同域名链接（忽略协议差异）
+                if link_domain == base_domain:
                     links.append(absolute_url)
-            return list(set(links))
-        except:
+            return list(set(links)) #去重
+        except Exception as e:
+            self.logger.error(f"爬取链接失败: {url}, 错误: {e}")
             return []
 

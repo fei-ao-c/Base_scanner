@@ -112,6 +112,25 @@ class VulnerabilityScanner:
                 )
            # vulnerabilities.extend(xss_vulns)
 
+            if self.config.get("crawl_depth",0)>0:
+                links=scanner.crawl_links(url)[:5]  # 限制爬取链接数量以节省时间
+                print(f"爬取到 {len(links)} 个链接，分别是{links}，开始扫描...")
+                try:
+                    for link in links:
+                        link_sql_vulns=scanner.check_sql_injection(link)
+                        for vuln in link_sql_vulns:
+                            vuln['url']=link
+                            vulnerabilities.append(vuln)
+                            self.logger.log_vulnerability_found(
+                                link,
+                                vuln['type'],
+                                vuln.get('confidence','未知'),
+                                vuln.get('payload')
+                            )
+                except Exception as e:
+                    print(f"爬取链接时出错: {e}")
+
+
             #记录扫描耗时
             duration=time.time()-start_time
             self.logger.log_performance("Web漏洞扫描",duration,url)
@@ -141,7 +160,7 @@ class VulnerabilityScanner:
         #         vulnerabilities.extend(sql_vulns)
 
         # self.results["vulnerabilities"]=vulnerabilities
-        #return vulnerabilities
+        # return vulnerabilities
     
     # def generate_report(self,format="json"):
     #     timestamp=datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -260,7 +279,7 @@ class VulnerabilityScanner:
                 print(f"\n详细统计:")
                 print(f"- 高风险漏洞: {summary.get('high_risk_vulns', 0)} 个")
                 print(f"- 中风险漏洞: {summary.get('medium_risk_vulns', 0)} 个")
-                print(f"- 总扫描端口: {summary.get('total_ports', 0)} 个")
+                # print(f"- 总扫描端口: {summary.get('total_ports', 0)} 个")
         except Exception as e:
             print(f"[-] 显示摘要时出错: {e}")
 

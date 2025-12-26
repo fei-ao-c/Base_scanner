@@ -248,7 +248,7 @@ def format_results_for_display(results):
     summary = results.get('scan_summary', {})
     if summary:
         output.append("📊 扫描统计:")
-        output.append(f"  • 总扫描端口: {summary.get('total_ports', 0)}")
+        # output.append(f"  • 总扫描端口: {summary.get('total_ports', 0)}")
         output.append(f"  • 开放端口: {len(open_ports)}")
         output.append(f"  • 总漏洞数: {summary.get('total_vulnerabilities', 0)}")
         output.append(f"  • 高风险漏洞: {summary.get('high_risk_vulns', 0)}")
