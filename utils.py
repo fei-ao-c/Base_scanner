@@ -52,7 +52,7 @@ def load_config():
     return default_config
 
 
-def save_results(results, filename, output_dir="output"):
+def save_results(results, filename, output_dir="output",type=None):
     """
     保存扫描结果到文件
     Args:
@@ -66,16 +66,25 @@ def save_results(results, filename, output_dir="output"):
         
         # 构建完整路径
         filepath = os.path.join(output_dir, filename)
-        
         # 保存为JSON格式
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(results, f, indent=2, ensure_ascii=False)
+        if type=="json":
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(results, f, indent=2, ensure_ascii=False)
         
-        print_colored(f"[+] 扫描结果已保存到: {filepath}", "green")
+            print_colored(f"[+] (json)扫描结果已保存到: {filepath}", "green")
+        elif type=="txt":
         
-        # 同时保存一个简化的文本摘要
-        save_text_summary(results, filename.replace('.json', '_summary.txt'), output_dir)
+            # 保存一个简化的文本摘要
+            save_text_summary(results, filename.replace('.json', '_summary.txt'), output_dir)
+            #print_colored(f"[+] (txt)扫描结果已保存到: {filepath.replace('.json', '_summary.txt')}", "green")
+        else:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(results, f, indent=2, ensure_ascii=False)
         
+            print_colored(f"[+] (json)扫描结果已保存到: {filepath}", "green")
+
+            save_text_summary(results, filename.replace('.json', '_summary.txt'), output_dir)
+            #print_colored(f"[+] (txt)扫描结果已保存到: {filepath.replace('.json', '_summary.txt')}", "green")
         return True
     except Exception as e:
         print_colored(f"[-] 保存结果失败: {e}", "red")

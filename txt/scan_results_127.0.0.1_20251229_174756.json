@@ -1,0 +1,21 @@
+{
+  "scan_id": "scanner_20251229_174753",
+  "scan_time": "2025-12-29 17:47:53.759518",
+  "target": "127.0.0.1",
+  "open_ports": [],
+  "vulnerabilities": [],
+  "scan_summary": {
+    "total_ports": 0,
+    "total_vulnerabilities": 0,
+    "high_risk_vulns": [],
+    "medium_risk_vulns": []
+  },
+  "logs": [
+    {
+      "timestamp": "2025-12-29T17:47:56.906505",
+      "action": "端口扫描完成",
+      "message": "发现 0 个开放端口",
+      "level": "INFO"
+    }
+  ]
+}

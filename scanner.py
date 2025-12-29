@@ -1,4 +1,5 @@
 import argparse
+import ipaddress
 import json
 import os
 import sys
@@ -17,8 +18,10 @@ except ImportError as e:
     sys.exit(1)
 
 class VulnerabilityScanner:
-    def __init__(self,config=None,log_dir='logs'):
+    def __init__(self,config=None,log_dir='logs',args=None):
         self.config = load_config() or config
+        # 保存外部传来的 args
+        self.args = args 
 
         #初始化日志系统
         self.logger=ScannerLogger(log_dir=log_dir)
@@ -35,18 +38,56 @@ class VulnerabilityScanner:
         #记录初始化
         self.logger.main_logger.info(f"初始化漏洞扫描器完成,扫描ID: {self.scan_id}")
 
+    def parse_range(self,range_str):
+    # """
+    # 将类似 '1-100' 的字符串转换为整数列表
+    # """
+        try:
+            # 使用 ipaddress 模块解析范围
+            # 注意：start 和 stop 都是整数
+            start, stop = map(int, range_str.split('-'))
 
-    def run_port_scan(self, target):
+            # 生成列表
+            return list(range(start, stop + 1))
+
+        except ValueError:
+            # 处理单个数字（如 '80'）或格式错误
+            if range_str.isdigit():
+                return [int(range_str)]
+            else:
+                raise ValueError(f"Invalid format: {range_str}")
+
+    def run_port_scan(self, target,ports=None):
         """执行端口扫描"""
         print(f"[*] 执行端口扫描: {target}")
         self.logger.log_scan_start(target,"端口扫描")
         start_time=time.time()
+        
+            # 解析端口参数
+        try:
+            # 如果传入了 ports 参数，解析它
+            if ports:
+                # 如果 ports 是字符串，解析范围；如果是列表，直接使用
+                if isinstance(ports, str):
+                    ports_to_scan = self.parse_range(ports)
+                elif isinstance(ports, list):
+                    ports_to_scan = ports
+                else:
+                    ports_to_scan = self.config.get("common_ports", [])
+            else:
+                ports_to_scan = self.config.get("common_ports", [])
+        except Exception as e:
+            print(f"端口解析错误: {e}")
+            ports_to_scan = self.config.get("common_ports", [])
 
+        print(f"扫描端口列表: {ports_to_scan}")
         try:
             scanner = PortScanner(timeout=self.config.get("timeout",2),
                                   max_threads=self.config.get("max_threads",50))
+            
             #获取要扫描的端口
-            ports_to_scan=self.config.get("common_ports",[])  #######标记
+            # ports_to_scan=self.args.ports if self.args else self.config.get("common_ports",[])  #######标记
+            # print(f"扫描端口列表: {ports_to_scan}")
             open_ports = scanner.scan_target(target,ports=ports_to_scan)
 
             # 获取服务信息
@@ -202,14 +243,16 @@ class VulnerabilityScanner:
         }
         self.results["logs"].append(log_entry)
 
-    def scan(self,target):
+    def scan(self,target,ports=None,type=None):
         self.results["target"]=target
         print(f"开始扫描目标: {target}")
         print("[*]" + "=" *50)
+        self.port=ports
+        self.type=type
 
         try:
             #1.端口扫描
-            ports=self.run_port_scan(target)
+            ports=self.run_port_scan(target,ports=self.port)
             self.results["open_ports"]=ports
             #收集漏洞信息
             #2.web漏洞扫描(如果发现http/https端口)
@@ -241,7 +284,8 @@ class VulnerabilityScanner:
             #确保output目录存在
             os.makedirs("output",exist_ok=True)
             #调用save_results函数
-            save_results(self.results, filename)
+            #print(self.type)
+            save_results(self.results, filename,"output",self.type)
             # #3.生成报告
             # self.generate_report(format="json")
             # self.generate_report(format="txt")
@@ -312,7 +356,7 @@ class VulnerabilityScanner:
 def main():
     parser=argparse.ArgumentParser(description="简易漏洞扫描工具")
     parser.add_argument("target",help="扫描目标IP或域名")
-    parser.add_argument("-p","--ports",help="扫描端口范围,例如 1-1000") #现在不可指定
+    parser.add_argument("-p","--ports",help="扫描端口范围,例如 1-1000") 
     parser.add_argument("-o","--output",help="输出报告文件名",choices=["json","txt","all"],default="all")#现在不可指定
     parser.add_argument("--log-dir",help="日志目录",default="logs")
     parser.add_argument("--log-level",help="日志级别",choices=['DEBUG','INFO','WARNING','ERROR'],default="INFO")#现在不可指定
@@ -320,6 +364,11 @@ def main():
     parser.add_argument("--view-log",help="查看日志",metavar="FILE")
     parser.add_argument("--analyze-logs",help="分析日志",action="store_true")
     args=parser.parse_args()
+
+    print(f"目标: {args.target}")
+    print(f"端口范围: {args.ports}") 
+    print(f"输出格式: {args.output}")
+    print(f"日志级别: {args.log_level}")
 
     #如果指定了日志相关的操作
     if args.view_log:
@@ -344,7 +393,7 @@ def main():
         logging.getLogger('vuln_scanner').setLevel(getattr(logging, args.log_level))
 
     try:
-        scanner.scan(args.target)
+        scanner.scan(args.target, ports=args.ports,type=args.output)
     except KeyboardInterrupt:
         print("\n[-] 扫描被用户中断")
     except Exception as e:
