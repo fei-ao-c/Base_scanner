@@ -357,9 +357,9 @@ def main():
     parser=argparse.ArgumentParser(description="简易漏洞扫描工具")
     parser.add_argument("target",help="扫描目标IP或域名")
     parser.add_argument("-p","--ports",help="扫描端口范围,例如 1-1000") 
-    parser.add_argument("-o","--output",help="输出报告文件名",choices=["json","txt","all"],default="all")#现在不可指定
+    parser.add_argument("-o","--output",help="输出报告文件名",choices=["json","txt","all"],default="all")
     parser.add_argument("--log-dir",help="日志目录",default="logs")
-    parser.add_argument("--log-level",help="日志级别",choices=['DEBUG','INFO','WARNING','ERROR'],default="INFO")#现在不可指定
+    # parser.add_argument("--log-level",help="日志级别",choices=['DEBUG','INFO','WARNING','ERROR'],default="INFO")#现在不可指定
     parser.add_argument("--no-log",help="禁用日志",action="store_true")
     parser.add_argument("--view-log",help="查看日志",metavar="FILE")
     parser.add_argument("--analyze-logs",help="分析日志",action="store_true")

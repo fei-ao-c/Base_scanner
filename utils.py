@@ -145,7 +145,7 @@ def save_text_summary(results, filename, output_dir="output"):
         print_colored(f"[-] 保存文本摘要失败: {e}", "yellow")
         return False
 
-# modules/utils.py - 增强版本
+# 增强版本
 def format_results_for_display(results):
     """格式化结果用于控制台显示（增强版）"""
     output = []
