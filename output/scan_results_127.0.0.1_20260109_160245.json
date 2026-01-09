@@ -1,0 +1,285 @@
+{
+  "scan_id": "scanner_20260109_160241",
+  "scan_time": "2026-01-09 16:02:41.334196",
+  "target": "127.0.0.1",
+  "request": [],
+  "response": [],
+  "open_ports": [
+    {
+      "port": 21,
+      "service": "FTP",
+      "status": "open"
+    },
+    {
+      "port": 80,
+      "service": "HTTP",
+      "status": "open"
+    }
+  ],
+  "vulnerabilities": [
+    {
+      "url": [
+        "http://127.0.0.1:80"
+      ],
+      "type": "SQL Injection",
+      "payload": "'",
+      "confidence": "低",
+      "tested_url": "http://127.0.0.1:80/sqli-labs-master/Less-5/",
+      "params": {
+        "id": "1'"
+      },
+      "error_indicator": "you have an error in your sql syntax",
+      "response_code": 200
+    },
+    {
+      "url": [
+        "http://127.0.0.1:80"
+      ],
+      "type": "SQL Injection",
+      "payload": "\"",
+      "confidence": "低",
+      "tested_url": "http://127.0.0.1:80/sqli-labs-master/Less-5/",
+      "params": {
+        "id": "1\""
+      },
+      "error_indicator": "welcome",
+      "response_code": 200
+    },
+    {
+      "url": [
+        "http://127.0.0.1:80"
+      ],
+      "type": "SQL Injection",
+      "payload": "' OR '1'='1",
+      "confidence": "低",
+      "tested_url": "http://127.0.0.1:80/sqli-labs-master/Less-5/",
+      "params": {
+        "id": "1' OR '1'='1"
+      },
+      "error_indicator": "welcome",
+      "response_code": 200
+    },
+    {
+      "url": [
+        "http://127.0.0.1:80"
+      ],
+      "type": "SQL Injection",
+      "payload": "\" OR \"1\"=\"1",
+      "confidence": "低",
+      "tested_url": "http://127.0.0.1:80/sqli-labs-master/Less-5/",
+      "params": {
+        "id": "1\" OR \"1\"=\"1"
+      },
+      "error_indicator": "welcome",
+      "response_code": 200
+    }
+  ],
+  "scan_summary": {
+    "total_ports": 2,
+    "total_vulnerabilities": 4,
+    "high_risk_vulns": [],
+    "medium_risk_vulns": []
+  },
+  "statistics": {
+    "request_stats": {
+      "total_requests": 7,
+      "successful_requests": 7,
+      "failed_requests": 0,
+      "total_response_size": 9925,
+      "average_response_time": 0.05287936755589077,
+      "success_rate": 100.0,
+      "average_response_size": 1417.857142857143
+    },
+    "queue_stats": {
+      "tasks_submitted": 7,
+      "tasks_completed": 7,
+      "tasks_failed": 0,
+      "queue_size": 0,
+      "active_workers": 0,
+      "tasks_pending": 0,
+      "queue_capacity": 100,
+      "rate_limit": {
+        "total_last_minute": 7,
+        "recent_per_second": 7,
+        "max_rps": 10,
+        "max_rpm": 60
+      }
+    },
+    "rate_limit_stats": {
+      "total_last_minute": 7,
+      "recent_per_second": 7,
+      "max_rps": 10,
+      "max_rpm": 60
+    },
+    "scan_duration": "1767945765.98s"
+  },
+  "logs": [
+    {
+      "timestamp": "2026-01-09T16:02:45.426525",
+      "action": "端口扫描完成",
+      "message": "发现 2 个开放端口",
+      "level": "INFO"
+    },
+    {
+      "timestamp": "2026-01-09T16:02:45.985098",
+      "action": "Web漏洞扫描完成:",
+      "message": "['http://127.0.0.1:80'], 发现漏洞数量: 4",
+      "level": "INFO"
+    }
+  ],
+  "requests": [
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:80/sqli-labs-master/Less-5/",
+      "headers": {},
+      "params": {
+        "id": "1'"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:80/sqli-labs-master/Less-5/",
+      "headers": {},
+      "params": {
+        "id": "1\""
+      }
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:80/sqli-labs-master/Less-5/",
+      "headers": {},
+      "params": {
+        "id": "1' OR '1'='1"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:80/sqli-labs-master/Less-5/",
+      "headers": {},
+      "params": {
+        "id": "1\" OR \"1\"=\"1"
+      }
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:80?test=<script>alert('XSS')</script>",
+      "headers": {}
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:80?test=\"><script>alert('XSS')</script>",
+      "headers": {}
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:80?test='><script>alert('XSS')</script>",
+      "headers": {}
+    }
+  ],
+  "responses": [
+    {
+      "status_code": 200,
+      "url": "http://127.0.0.1:80/sqli-labs-master/Less-5/?id=1%27",
+      "headers": {
+        "Date": "Fri, 09 Jan 2026 08:02:45 GMT",
+        "Server": "Apache/2.4.39 (Win64) OpenSSL/1.1.1b mod_fcgid/2.3.9a mod_log_rotate/1.02",
+        "X-Powered-By": "PHP/5.4.45",
+        "Keep-Alive": "timeout=5, max=100",
+        "Connection": "Keep-Alive",
+        "Transfer-Encoding": "chunked",
+        "Content-Type": "text/html"
+      },
+      "content_length": 880
+    },
+    {
+      "status_code": 200,
+      "url": "http://127.0.0.1:80/sqli-labs-master/Less-5/?id=1%22",
+      "headers": {
+        "Date": "Fri, 09 Jan 2026 08:02:45 GMT",
+        "Server": "Apache/2.4.39 (Win64) OpenSSL/1.1.1b mod_fcgid/2.3.9a mod_log_rotate/1.02",
+        "X-Powered-By": "PHP/5.4.45",
+        "Keep-Alive": "timeout=5, max=99",
+        "Connection": "Keep-Alive",
+        "Transfer-Encoding": "chunked",
+        "Content-Type": "text/html"
+      },
+      "content_length": 704
+    },
+    {
+      "status_code": 200,
+      "url": "http://127.0.0.1:80/sqli-labs-master/Less-5/?id=1%27+OR+%271%27%3D%271",
+      "headers": {
+        "Date": "Fri, 09 Jan 2026 08:02:45 GMT",
+        "Server": "Apache/2.4.39 (Win64) OpenSSL/1.1.1b mod_fcgid/2.3.9a mod_log_rotate/1.02",
+        "X-Powered-By": "PHP/5.4.45",
+        "Keep-Alive": "timeout=5, max=98",
+        "Connection": "Keep-Alive",
+        "Transfer-Encoding": "chunked",
+        "Content-Type": "text/html"
+      },
+      "content_length": 704
+    },
+    {
+      "status_code": 200,
+      "url": "http://127.0.0.1:80/sqli-labs-master/Less-5/?id=1%22+OR+%221%22%3D%221",
+      "headers": {
+        "Date": "Fri, 09 Jan 2026 08:02:45 GMT",
+        "Server": "Apache/2.4.39 (Win64) OpenSSL/1.1.1b mod_fcgid/2.3.9a mod_log_rotate/1.02",
+        "X-Powered-By": "PHP/5.4.45",
+        "Keep-Alive": "timeout=5, max=97",
+        "Connection": "Keep-Alive",
+        "Transfer-Encoding": "chunked",
+        "Content-Type": "text/html"
+      },
+      "content_length": 704
+    },
+    {
+      "status_code": 200,
+      "url": "http://127.0.0.1:80/?test=%3Cscript%3Ealert('XSS')%3C/script%3E",
+      "headers": {
+        "Date": "Fri, 09 Jan 2026 08:02:45 GMT",
+        "Server": "Apache/2.4.39 (Win64) OpenSSL/1.1.1b mod_fcgid/2.3.9a mod_log_rotate/1.02",
+        "Last-Modified": "Tue, 15 Oct 2024 07:08:09 GMT",
+        "ETag": "\"907-6247e9da147c3\"",
+        "Accept-Ranges": "bytes",
+        "Content-Length": "2311",
+        "Keep-Alive": "timeout=5, max=96",
+        "Connection": "Keep-Alive",
+        "Content-Type": "text/html"
+      },
+      "content_length": 2311
+    },
+    {
+      "status_code": 200,
+      "url": "http://127.0.0.1:80/?test=%22%3E%3Cscript%3Ealert('XSS')%3C/script%3E",
+      "headers": {
+        "Date": "Fri, 09 Jan 2026 08:02:45 GMT",
+        "Server": "Apache/2.4.39 (Win64) OpenSSL/1.1.1b mod_fcgid/2.3.9a mod_log_rotate/1.02",
+        "Last-Modified": "Tue, 15 Oct 2024 07:08:09 GMT",
+        "ETag": "\"907-6247e9da147c3\"",
+        "Accept-Ranges": "bytes",
+        "Content-Length": "2311",
+        "Keep-Alive": "timeout=5, max=95",
+        "Connection": "Keep-Alive",
+        "Content-Type": "text/html"
+      },
+      "content_length": 2311
+    },
+    {
+      "status_code": 200,
+      "url": "http://127.0.0.1:80/?test='%3E%3Cscript%3Ealert('XSS')%3C/script%3E",
+      "headers": {
+        "Date": "Fri, 09 Jan 2026 08:02:45 GMT",
+        "Server": "Apache/2.4.39 (Win64) OpenSSL/1.1.1b mod_fcgid/2.3.9a mod_log_rotate/1.02",
+        "Last-Modified": "Tue, 15 Oct 2024 07:08:09 GMT",
+        "ETag": "\"907-6247e9da147c3\"",
+        "Accept-Ranges": "bytes",
+        "Content-Length": "2311",
+        "Keep-Alive": "timeout=5, max=94",
+        "Connection": "Keep-Alive",
+        "Content-Type": "text/html"
+      },
+      "content_length": 2311
+    }
+  ]
+}

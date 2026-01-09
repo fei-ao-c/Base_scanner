@@ -25,7 +25,7 @@ except ImportError as e:
 class VulnerabilityScanner:
     def __init__(self,config=None,log_dir='logs',args=None):
         self.config =  config or load_config(True)
-        print(f"加载配置: {self.config}")
+        # print(f"加载配置: {self.config}")
         # 保存外部传来的 args
         self.args = args 
 
