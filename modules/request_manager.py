@@ -1,3 +1,4 @@
+#基础请求控制器
 import time
 import asyncio
 import threading
@@ -45,7 +46,7 @@ class RateLimiter:
             ]
 
             #检查是否超过每分钟最大请求数
-            if len(recent_requests) > self.max_rpm:
+            if len(self.request_timestamps) > self.max_rpm:
                 self.logger.warning(f"达到分钟限制: {len(self.request_timestamps)}/{self.max_rpm}")
                 return False
 
@@ -64,7 +65,7 @@ class RateLimiter:
 
             with self.lock:
                 recent_requests=[
-                    ts for ts in self.request_timestamps if ts > one_second_ago
+                    ts for ts in self.request_timestamps if ts > one_second_ago #遍历 self.request_timestamps 中的所有时间戳，只保留那些大于 one_second_ago（即最近一秒内）的时间戳
                 ]
 
                 if recent_requests:
@@ -82,7 +83,7 @@ class RateLimiter:
         """记录一个请求"""
         with self.lock:
             self.request_timestamps.append(time.time())
-    def getstate(self):
+    def get_stats(self):
         """获取当前统计信息"""
         self._cleanup_old_timestamps()
 

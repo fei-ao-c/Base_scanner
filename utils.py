@@ -24,14 +24,15 @@ except ImportError:
         """普通输出（无颜色）"""
         print(text)
 
-def load_config():
+def load_config(choice=None):
     # 1. 获取当前脚本文件的绝对路径
     current_dir = os.path.dirname(os.path.abspath(__file__))
     
     # 2. 构建相对于脚本所在目录的路径
     config_path = os.path.join(current_dir, "config", "config.json")
-    
-    print(f"正在尝试加载: {config_path}") # 调试用，打印出实际路径
+
+    if choice==True:
+        print(f"正在尝试加载: {config_path}") # 调试用，打印出实际路径
     
     default_config = {
         "timeout": 2,
@@ -46,7 +47,8 @@ def load_config():
             with open(config_path, 'r',encoding='utf-8') as f:
                 user_config = json.load(f)
                 default_config.update(user_config)
-                print_colored("配置文件加载成功", "green")
+                if choice==True:
+                    print_colored("配置文件加载成功", "green")
         except Exception as e:
             print_colored(f"[-] 加载配置文件出错: {e}，使用默认配置", "yellow")
     return default_config
