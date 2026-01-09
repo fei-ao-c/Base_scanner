@@ -54,7 +54,7 @@ scanner/
 
 1. 克隆代码到本地：
 ```bash
-git clone https://gitee.com/cheng-aofei/scanner.git
+git clone https://github.com/fei-ao-c/Base_scanner.git
 cd scanner
 ```
 
