@@ -10,7 +10,7 @@ import logging
 import ssl
 import time
 from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
+from urllib3.util.retry import Retry
 
 class RequestSender:
     """多功能请求发送器"""

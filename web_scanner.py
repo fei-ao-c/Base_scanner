@@ -32,7 +32,7 @@ class sampilescanner:
 
         # 初始化速率限制器
         self.rate_limiter=RateLimiter(
-            max_request_pre_second=self.config.get("max_request_pre_second",10),
+            max_requests_per_second=self.config.get("max_requests_pre_second",10),
             max_requests_per_minute=self.config.get("max_requests_per_minute",60)
         )
         

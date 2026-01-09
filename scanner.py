@@ -24,7 +24,8 @@ except ImportError as e:
 
 class VulnerabilityScanner:
     def __init__(self,config=None,log_dir='logs',args=None):
-        self.config = load_config(True) or config
+        self.config =  config or load_config(True)
+        print(f"加载配置: {self.config}")
         # 保存外部传来的 args
         self.args = args 
 
@@ -34,7 +35,7 @@ class VulnerabilityScanner:
 
         #初始化速率限制器
         self.rate_limiter=RateLimiter(
-            max_request_pre_second=self.config.get("max_request_pre_second",10),
+            max_requests_per_second=self.config.get("max_requests_per_second",10),
             max_requests_per_minute=self.config.get("max_requests_per_minute",60)
         )
 

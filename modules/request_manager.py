@@ -10,12 +10,12 @@ import logging
 class RateLimiter:
     """请求速率限制器"""
 
-    def __init__(self,max_request_pre_second=10,max_requests_per_minute=60):
+    def __init__(self,max_requests_per_second=10,max_requests_per_minute=60):
         """Args:
-            max_request_pre_second: 限制每秒最大请求数
+            max_requests_per_second: 限制每秒最大请求数
             max_requests_per_minute: 限制每分钟最大请求数
         """
-        self.max_rps = max_request_pre_second
+        self.max_rps = max_requests_per_second
         self.max_rpm = max_requests_per_minute
 
         #存储请求时间戳
