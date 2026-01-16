@@ -287,7 +287,7 @@ class VulnerabilityScanner:
         print(f"扫描端口列表: {ports_to_scan}")
         try:
             scanner = PortScanner(timeout=self.config.get("timeout",2),
-                                  max_threads=self.config.get("max_threads",50))
+                                  max_threads=self.config.get("max_threads",50),verbose=False)
             
             #获取要扫描的端口
             # ports_to_scan=self.args.ports if self.args else self.config.get("common_ports",[])  #######标记
@@ -418,89 +418,320 @@ class VulnerabilityScanner:
         }
         self.results["logs"].append(log_entry)
 
-    def scan_with_rate_control(self,target,ports=None,type=None):
-        """使用速率控制的扫描"""
-        self.results["target"]=target
+    def scan_with_rate_control(self, target, ports=None, type=None):
+        """使用速率控制的扫描，支持多种格式的目标输入"""
+
+        # 先解析目标，提取主机信息
+        parsed_target = self._parse_target(target)
+
+        # 使用解析后的主机作为目标
+        scan_host = parsed_target["host"]
+        self.results["target"] = target
+        self.results["parsed_target"] = parsed_target  # 保存解析后的信息
+
         print(f"开始扫描目标: {target}")
-        print("[*]" + "=" *50)
-        self.port=ports
-        self.type=type
+        if parsed_target["protocol"]:
+            print(f"解析为: {parsed_target['protocol']}://{scan_host}:{parsed_target['port'] if parsed_target['port'] else '默认端口'}")
+        print("[*]" + "=" * 50)
+
+        self.port = ports
+        self.type = type
+
         # 记录扫描开始
         self.logger.log_scan_start(target, "完整扫描")
 
         try:
-            #1.端口扫描
+            # 1. 端口扫描（使用解析后的主机）
             self.logger.main_logger.info("阶段1: 端口扫描")
-            ports=self.run_port_scan(target,ports=self.port)
-            self.results["open_ports"]=ports
-            #收集漏洞信息
 
-            #2.web漏洞扫描(如果发现http/https端口)
-            web_urls=self._identify_web_services(target,ports)
+            # 如果URL中指定了端口，且未提供ports参数，则使用URL中的端口
+            if ports is None and parsed_target["port"] is not None:
+                ports_to_scan = [parsed_target["port"]]
+                print(f"使用URL中指定的端口: {parsed_target['port']}")
+            else:
+                ports_to_scan = ports
+
+            ports_result = self.run_port_scan(scan_host, ports=ports_to_scan)
+            self.results["open_ports"] = ports_result
+
+            # 2. web漏洞扫描
+            web_urls = []
+
+            # 如果输入是完整URL，直接使用该URL
+            if parsed_target["protocol"] and parsed_target["full_url"]:
+                web_urls.append(parsed_target["full_url"])
+                print(f"使用完整URL进行Web扫描: {parsed_target['full_url']}")
+            # 否则，通过识别的Web服务构建URL
+            elif ports_result:
+                web_urls = self._identify_web_services(scan_host, ports_result)
+
             if web_urls:
                 self.logger.main_logger.info(f"扫描Web漏洞: {web_urls}")
-                vulns=self.run_web_scan(web_urls)
-                # print(f'{vulns}+"------------"')
-                self.results["vulnerabilities"]=vulns
+                vulns = self.run_web_scan(web_urls)
+                self.results["vulnerabilities"] = vulns
             else:
-                print("未发现Web服务端口，跳过Web漏洞扫描。")
-                self.results["vulnerabilities"]=[]
-            
-            #3.收集统计信息
-            #self._collect_statistics_zong() #这里没发挥作用，因为没有进行web服务扫描
+                print("未发现Web服务，跳过Web漏洞扫描。")
+                self.results["vulnerabilities"] = []
 
-            #4.更新扫描摘要
-            self.results["scan_summary"]={
-                "total_ports":len(ports),
-                "total_vulnerabilities":len(self.results["vulnerabilities"]),
-                "high_risk_vulns":[v for v in self.results["vulnerabilities"] if v["confidence"]=="高"],
-                "medium_risk_vulns":[v for v in self.results["vulnerabilities"] if v["confidence"]=="中"]
+            # 3. 收集统计信息
+            # self._collect_statistics_zong()
+
+            # 4. 更新扫描摘要
+            self.results["scan_summary"] = {
+                "original_target": target,
+                "parsed_host": scan_host,
+                "protocol": parsed_target["protocol"],
+                "port_from_url": parsed_target["port"],
+                "total_ports_scanned": len(ports_result),
+                "total_vulnerabilities": len(self.results["vulnerabilities"]),
+                "high_risk_vulns": [v for v in self.results["vulnerabilities"] if v.get("confidence") == "高"],
+                "medium_risk_vulns": [v for v in self.results["vulnerabilities"] if v.get("confidence") == "中"]
             }
-            #5.调用save_results函数保存结果
-            timestamp=datetime.now().strftime("%Y%m%d_%H%M%S")
-            #保存完整结果
-            filename=f"scan_results_{target}_{timestamp}.json"
-            #确保output目录存在
-            os.makedirs("output",exist_ok=True)
-            #调用save_results函数
-            
-            save_results(self.results, filename,"output",self.type)
-            #6.显示摘要
+
+            # 5. 保存结果
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            def clean_target_string(target_str):
+                """清理目标字符串，移除文件系统非法字符"""
+                import re
+                # 移除所有非法文件名字符
+                illegal_chars = r'[<>:"/\\|?*]'
+                clean_str = re.sub(illegal_chars, '_', target_str)
+                # 移除首尾空格和下划线
+                clean_str = clean_str.strip(' _')
+                # 如果清理后为空，使用默认名称
+                if not clean_str:
+                    clean_str = "unknown_target"
+                return clean_str
+            parsed_target = self._parse_target(target)
+            safe_host_name = clean_target_string(parsed_target.get("host", target))
+            filename = f"scan_results_{safe_host_name}_{timestamp}.json"
+            #filename = f"scan_results_{scan_host}_{timestamp}.json"
+            os.makedirs("output", exist_ok=True)
+            save_results(self.results, filename, "output", self.type)
+
+            # 6. 显示摘要
             self.show_summary()
 
             self.logger.main_logger.info(f"扫描完成: {target}")
-            self._add_log_entry(f"扫描完成","所有扫描任务已完成。")
+            self._add_log_entry(f"扫描完成", "所有扫描任务已完成。")
+
         except KeyboardInterrupt:
             print("\n[-] 扫描被用户中断")
             if self.results["open_ports"] or self.results["vulnerabilities"]:
-                timestamp=datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename=f"scan_results_{target}_partial_{timestamp}.json"
-                save_results(self.results,filename)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"scan_results_{scan_host}_partial_{timestamp}.json"
+                save_results(self.results, filename)
                 print(f"[!] 部分结果已保存为 output/{filename}")
         except Exception as e:
             print(f"\n[-] 扫描过程中出现错误: {e}")
             import traceback
             traceback.print_exc()
-    
-    def _identify_web_services(self, target, ports):
-        """识别Web服务"""
+
+    def _parse_target(self, target):
+        """
+        解析各种格式的目标，返回统一格式
+        支持:
+        - IP地址: 127.0.0.1
+        - 域名: example.com
+        - 带端口的IP/域名: 127.0.0.1:8080, example.com:443
+        - HTTP/HTTPS URL: http://example.com, https://example.com:8080/path
+        - 带路径的URL: http://example.com/admin, https://192.168.1.1:8443/login
+        """
+
+        import re
+        from urllib.parse import urlparse
+
+        result = {
+            "original": target,
+            "protocol": None,
+            "host": None,
+            "port": None,
+            "path": None,
+            "full_url": None,
+            "is_ip": False,
+            "is_domain": False
+        }
+
+        # 清理目标字符串
+        target = target.strip()
+
+        # 判断是否为URL（包含协议）
+        if target.startswith(('http://', 'https://')):
+            try:
+                parsed = urlparse(target)
+                result["protocol"] = parsed.scheme
+                result["host"] = parsed.hostname
+                result["port"] = parsed.port
+                result["path"] = parsed.path if parsed.path else "/"
+                result["full_url"] = target
+
+                # 如果没有指定端口，使用协议默认端口
+                if not result["port"]:
+                    result["port"] = 443 if result["protocol"] == "https" else 80
+
+            except Exception as e:
+                print(f"解析URL失败: {e}, 将尝试其他格式")
+
+        # 如果不是完整URL，尝试其他格式
+        if not result["host"]:
+            # 匹配IP:端口 或 域名:端口
+            port_match = re.match(r'^([^:]+):(\d+)$', target)
+
+            if port_match:
+                host_part = port_match.group(1)
+                port_part = int(port_match.group(2))
+
+                result["host"] = host_part
+                result["port"] = port_part
+
+                # 判断是否为IP地址
+                if re.match(r'^\d{1,3}(\.\d{1,3}){3}$', host_part):
+                    result["is_ip"] = True
+                    # 构建一个默认的HTTP URL
+                    result["protocol"] = "http"
+                    result["full_url"] = f"http://{host_part}:{port_part}/"
+                else:
+                    result["is_domain"] = True
+                    result["protocol"] = "http"
+                    result["full_url"] = f"http://{host_part}:{port_part}/"
+            else:
+                # 纯IP或域名，没有端口
+                result["host"] = target
+
+                # 判断是否为IP地址
+                if re.match(r'^\d{1,3}(\.\d{1,3}){3}$', target):
+                    result["is_ip"] = True
+                    result["protocol"] = "http"
+                    result["full_url"] = f"http://{target}/"
+                else:
+                    result["is_domain"] = True
+                    result["protocol"] = "http"
+                    result["full_url"] = f"http://{target}/"
+
+        # 如果还没有协议，设置默认协议
+        if not result["protocol"]:
+            result["protocol"] = "http"
+
+        # 如果还没有full_url，构建一个
+        if not result["full_url"]:
+            if result["port"]:
+                result["full_url"] = f"{result['protocol']}://{result['host']}:{result['port']}/"
+            else:
+                result["full_url"] = f"{result['protocol']}://{result['host']}/"
+
+        return result
+
+    # def scan_with_rate_control(self,target,ports=None,type=None):
+    #     """使用速率控制的扫描"""
+    #     self.results["target"]=target
+    #     print(f"开始扫描目标: {target}")
+    #     print("[*]" + "=" *50)
+    #     self.port=ports
+    #     self.type=type
+    #     # 记录扫描开始
+    #     self.logger.log_scan_start(target, "完整扫描")
+
+    #     try:
+    #         #1.端口扫描
+    #         self.logger.main_logger.info("阶段1: 端口扫描")
+    #         ports=self.run_port_scan(target,ports=self.port)
+    #         self.results["open_ports"]=ports
+    #         #收集漏洞信息
+
+    #         #2.web漏洞扫描(如果发现http/https端口)
+    #         web_urls=self._identify_web_services(target,ports)
+    #         if web_urls:
+    #             self.logger.main_logger.info(f"扫描Web漏洞: {web_urls}")
+    #             vulns=self.run_web_scan(web_urls)
+    #             # print(f'{vulns}+"------------"')
+    #             self.results["vulnerabilities"]=vulns
+    #         else:
+    #             print("未发现Web服务端口，跳过Web漏洞扫描。")
+    #             self.results["vulnerabilities"]=[]
+            
+    #         #3.收集统计信息
+    #         #self._collect_statistics_zong() #这里没发挥作用，因为没有进行web服务扫描
+
+    #         #4.更新扫描摘要
+    #         self.results["scan_summary"]={
+    #             "total_ports":len(ports),
+    #             "total_vulnerabilities":len(self.results["vulnerabilities"]),
+    #             "high_risk_vulns":[v for v in self.results["vulnerabilities"] if v["confidence"]=="高"],
+    #             "medium_risk_vulns":[v for v in self.results["vulnerabilities"] if v["confidence"]=="中"]
+    #         }
+    #         #5.调用save_results函数保存结果
+    #         timestamp=datetime.now().strftime("%Y%m%d_%H%M%S")
+    #         #保存完整结果
+    #         filename=f"scan_results_{target}_{timestamp}.json"
+    #         #确保output目录存在
+    #         os.makedirs("output",exist_ok=True)
+    #         #调用save_results函数
+            
+    #         save_results(self.results, filename,"output",self.type)
+    #         #6.显示摘要
+    #         self.show_summary()
+
+    #         self.logger.main_logger.info(f"扫描完成: {target}")
+    #         self._add_log_entry(f"扫描完成","所有扫描任务已完成。")
+    #     except KeyboardInterrupt:
+    #         print("\n[-] 扫描被用户中断")
+    #         if self.results["open_ports"] or self.results["vulnerabilities"]:
+    #             timestamp=datetime.now().strftime("%Y%m%d_%H%M%S")
+    #             filename=f"scan_results_{target}_partial_{timestamp}.json"
+    #             save_results(self.results,filename)
+    #             print(f"[!] 部分结果已保存为 output/{filename}")
+    #     except Exception as e:
+    #         print(f"\n[-] 扫描过程中出现错误: {e}")
+    #         import traceback
+    #         traceback.print_exc()
+
+    def _identify_web_services(self, host, ports):
+        """
+        识别Web服务，返回URL列表
+        支持IP、域名和带端口的输入
+        """
         web_urls = []
         
-        for port_info in ports:
-            port = port_info.get("port")
-            
-            # 常见Web端口
-            if port in [80, 443, 8080, 8443, 8000, 8888]:
-                protocol = "https" if port in [443, 8443] else "http"
-                web_urls.append(f"{protocol}://{target}:{port}")
-            
-            # 其他可能运行Web服务的端口
-            elif port in [3000, 5000, 7000, 9000]:
-                # 尝试HTTP和HTTPS
-                for protocol in ["http", "https"]:
-                    web_urls.append(f"{protocol}://{target}:{port}")
+        for port in ports:
+            # 检查是否为常见Web端口
+            if port in [80, 443, 8080, 8443, 8000, 3000, 5000]:
+                # 根据端口决定协议
+                if port == 443 or port == 8443:
+                    protocol = "https"
+                else:
+                    protocol = "http"
+                
+                # 构建URL
+                if port in [80, 443]:
+                    url = f"{protocol}://{host}/"
+                else:
+                    url = f"{protocol}://{host}:{port}/"
+                
+                web_urls.append(url)
         
-        return list(set(web_urls))
+        return web_urls
+    
+    # def _collect_statistics_zong(self,totals={}):
+    
+    # def _identify_web_services(self, target, ports):
+    #     """识别Web服务"""
+    #     web_urls = []
+        
+    #     for port_info in ports:
+    #         port = port_info.get("port")
+            
+    #         # 常见Web端口
+    #         if port in [80, 443, 8080, 8443, 8000, 8888]:
+    #             protocol = "https" if port in [443, 8443] else "http"
+    #             web_urls.append(f"{protocol}://{target}:{port}")
+            
+    #         # 其他可能运行Web服务的端口
+    #         elif port in [3000, 5000, 7000, 9000]:
+    #             # 尝试HTTP和HTTPS
+    #             for protocol in ["http", "https"]:
+    #                 web_urls.append(f"{protocol}://{target}:{port}")
+        
+    #     return list(set(web_urls))
     
     # def _collect_statistics_zong(self,totals={}):
     #     """收集总统计信息"""

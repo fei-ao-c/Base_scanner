@@ -4,65 +4,247 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 
 class PortScanner:
-    def __init__(self,timeout=1,max_threads=100):
+    def __init__(self,timeout=1,max_threads=100,verbose=False):
         self.timeout=timeout
         self.max_threads=max_threads
-
+        self.verbose = verbose
         #获取日志记录器
         self.logger=logging.getLogger('vuln_scanner.scan.port')
 
         self.common_ports=[21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143,
             443, 445, 993, 995, 1723, 3306, 3389, 5900, 8080]
-    def scan_port(self,target,port):
-        """扫描单个端口"""
+        
+    def scan_port(self, target, port):
+        """扫描单个端口，增强异常处理"""
+        # 1. 首先解析目标，获取主机（此步骤可能失败）
         try:
-            sock=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+            parsed_target = self._parse_target(target)
+            host_to_scan = parsed_target["host"]
+        except Exception as parse_err:
+            # 如果连目标都无法解析，直接返回错误，不再尝试连接
+            error_msg = f"目标解析失败 '{target}': {parse_err}"
+            self.logger.error(error_msg)
+            return port, f"parse_error: {str(parse_err)}"
+
+        # 2. 现在 host_to_scan 已被安全赋值，开始扫描
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(self.timeout)
 
-            self.logger.debug(f"Scanning {target}:{port}")
+            self.logger.debug(f"正在扫描 {host_to_scan}:{port} (原始输入: {target})")
 
-            result=sock.connect_ex((target,port))
+            result = sock.connect_ex((host_to_scan, port))
             sock.close()
 
-            if result==0:
-                self.logger.debug(f"端口开放: {target}:{port}")
+            if result == 0:
+                self.logger.debug(f"端口开放: {host_to_scan}:{port}")
                 return port, "open"
             else:
                 return port, "closed"
         except socket.timeout:
-            self.logger.debug(f"端口扫描超时: {target}:{port}")
+            self.logger.debug(f"端口扫描超时: {host_to_scan}:{port}")
             return port, "timeout"
         except Exception as e:
-            self.logger.error(f"端口扫描错误: {target}:{port}, 错误: {e}", exc_info=True)
-            return port, f"error: {str(e)}"
+            # 此时可以安全地使用 host_to_scan 变量
+            self.logger.error(f"端口扫描错误: {host_to_scan}:{port}, 错误: {e}", exc_info=True)
+            return port, f"socket_error: {str(e)}"
 
-    def scan_target(self,target,ports=None):
-        """扫描目标的所有指定端口"""
+    def scan_target(self, target, ports=None):
+        """扫描目标的所有指定端口，支持多种输入格式"""
+        # 先解析目标，提取主机信息
+        parsed_target = self._parse_target(target)
+        host = parsed_target["host"]
+
         if ports is None:
-            ports=self.common_ports
-        
-        open_ports=[]
+            # 优先使用URL中指定的端口
+            if parsed_target["port"] is not None:
+                ports = [parsed_target["port"]]
+                print(f"使用URL中指定的端口进行扫描: {parsed_target['port']}")
+            else:
+                ports = self.common_ports
 
-        # print(f"开始扫描 {target}...")
-        self.logger.info(f"开始扫描目标: {target}, 端口数量: {len(ports)}")
+        open_ports = []
+
+        self.logger.info(f"开始扫描目标: {target} -> {host}, 端口数量: {len(ports)}")
+        print(f"扫描目标: {target} (解析为: {host})")
+
         with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
-            #提交所有端口扫描任务
-            future_to_port={
-                executor.submit(self.scan_port,target,port):port
-                for port in ports} 
-            #收集结果
+            # 提交所有端口扫描任务
+            future_to_port = {
+                executor.submit(self.scan_port, target, port): port
+                for port in ports
+            }
+
+            # 收集结果
             for future in concurrent.futures.as_completed(future_to_port):
-                port=future_to_port[future]
+                port = future_to_port[future]
                 try:
-                    port_num,status=future.result()
-                    if status=="open":
+                    port_num, status = future.result()
+                    if status == "open":
                         open_ports.append(port_num)
-                        # print(f"[+] 端口 {port_num} 开放")
-                        #self.logger.info(f"端口开放: {target}:{port_num} ")
+                        print(f"[+] {host}:{port_num} 开放 ({status})")
+                        self.logger.info(f"端口开放: {host}:{port_num}")
+                    else:
+                        if self.verbose:  # 可选：详细模式显示关闭端口
+                            print(f"[-] {host}:{port_num} 关闭 ({status})")
                 except Exception as e:
                     print(f"[-] 端口 {port} 扫描出错: {e}")
+                    self.logger.error(f"端口扫描异常: {host}:{port}, 错误: {e}")
+
         self.logger.info(f"完成扫描目标: {target}, 开放端口数量: {len(open_ports)}")
+
+        # 显示简要结果
+        if open_ports:
+            print(f"\n[+] {host} 开放端口: {sorted(open_ports)}")
+        else:
+            print(f"\n[-] {host} 未发现开放端口")
+
         return sorted(open_ports)
+    
+    def _parse_target(self, target):
+        """
+        增强版目标解析，严格分离主机、端口和路径。
+        支持:
+        - http://127.0.0.1/path:90
+        - 127.0.0.1/sqli-labs-master/Less-1/:90 (这种格式不规范，但尝试兼容)
+        - 所有标准格式
+        """
+        import re
+        from urllib.parse import urlparse
+
+        result = {
+            "original": target.strip(),
+            "protocol": None,
+            "host": None,
+            "port": None,
+            "path": None,
+            "full_url": None,
+            "is_ip": False,
+            "is_domain": False,
+            "parse_error": None
+        }
+
+        target = target.strip()
+
+        # --- 情况1: 处理包含协议的完整URL (最标准) ---
+        if target.startswith(('http://', 'https://')):
+            try:
+                parsed = urlparse(target)
+                result["protocol"] = parsed.scheme
+                result["host"] = parsed.hostname
+                result["port"] = parsed.port
+                result["path"] = parsed.path
+
+                # 处理URL中可能包含的端口
+                if not result["port"]:
+                    result["port"] = 443 if result["protocol"] == "https" else 80
+                result["full_url"] = f"{result['protocol']}://{result['host']}:{result['port']}{result['path'] or '/'}"
+
+            except Exception as e:
+                result["parse_error"] = f"URL解析失败: {e}"
+
+        # --- 情况2: 处理不含协议但含端口的格式 (如 127.0.0.1:90/path) ---
+        # 先尝试提取端口，因为端口前的部分一定是主机
+        if not result["host"]:
+            # 匹配主机:端口 模式，端口后可能跟路径
+            # 例如: 127.0.0.1:90/path, example.com:443/admin
+            match_with_port = re.match(r'^([^:/?#]+):(\d+)([/?#].*)?$', target)
+
+            if match_with_port:
+                result["host"] = match_with_port.group(1)
+                result["port"] = int(match_with_port.group(2))
+                result["path"] = match_with_port.group(3) or "/"
+                result["protocol"] = "http" if result["port"] != 443 else "https"
+
+        # --- 情况3: 处理不含端口但含路径的格式 (如 127.0.0.1/path) ---
+        if not result["host"]:
+            # 匹配主机/路径 模式
+            match_with_path = re.match(r'^([^:/?#]+)([/?#].*)$', target)
+
+            if match_with_path:
+                result["host"] = match_with_path.group(1)
+                result["path"] = match_with_path.group(2)
+                result["protocol"] = "http"
+                result["port"] = 80  # HTTP默认端口
+
+        # --- 情况4: 纯主机 (IP或域名) ---
+        if not result["host"]:
+            result["host"] = target
+            result["protocol"] = "http"
+            result["port"] = 80
+            result["path"] = "/"
+
+        # --- 后处理与验证 ---
+        # 1. 验证主机格式
+        if re.match(r'^\d{1,3}(\.\d{1,3}){3}$', result["host"]):
+            result["is_ip"] = True
+        elif '.' in result["host"]:  # 简单域名判断
+            result["is_domain"] = True
+
+        # 2. 构建标准full_url (用于Web扫描)
+        if not result["full_url"]:
+            if result["path"] and result["path"] != "/":
+                result["full_url"] = f"{result['protocol']}://{result['host']}:{result['port']}{result['path']}"
+            else:
+                result["full_url"] = f"{result['protocol']}://{result['host']}:{result['port']}/"
+
+        # 3. 清理路径中的多余斜杠
+        if result["path"] and '://' in result["path"]:
+            # 防止路径部分错误地包含协议头
+            result["path"] = re.sub(r'^[^/]*//[^/]*', '', result["path"])
+
+        return result
+
+    # def scan_port(self,target,port):
+    #     """扫描单个端口"""
+    #     try:
+    #         sock=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+    #         sock.settimeout(self.timeout)
+
+    #         self.logger.debug(f"Scanning {target}:{port}")
+
+    #         result=sock.connect_ex((target,port))
+    #         sock.close()
+
+    #         if result==0:
+    #             self.logger.debug(f"端口开放: {target}:{port}")
+    #             return port, "open"
+    #         else:
+    #             return port, "closed"
+    #     except socket.timeout:
+    #         self.logger.debug(f"端口扫描超时: {target}:{port}")
+    #         return port, "timeout"
+    #     except Exception as e:
+    #         self.logger.error(f"端口扫描错误: {target}:{port}, 错误: {e}", exc_info=True)
+    #         return port, f"error: {str(e)}"
+
+    # def scan_target(self,target,ports=None):
+    #     """扫描目标的所有指定端口"""
+    #     if ports is None:
+    #         ports=self.common_ports
+        
+    #     open_ports=[]
+
+    #     # print(f"开始扫描 {target}...")
+    #     self.logger.info(f"开始扫描目标: {target}, 端口数量: {len(ports)}")
+    #     with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
+    #         #提交所有端口扫描任务
+    #         future_to_port={
+    #             executor.submit(self.scan_port,target,port):port
+    #             for port in ports} 
+    #         #收集结果
+    #         for future in concurrent.futures.as_completed(future_to_port):
+    #             port=future_to_port[future]
+    #             try:
+    #                 port_num,status=future.result()
+    #                 if status=="open":
+    #                     open_ports.append(port_num)
+    #                     # print(f"[+] 端口 {port_num} 开放")
+    #                     #self.logger.info(f"端口开放: {target}:{port_num} ")
+    #             except Exception as e:
+    #                 print(f"[-] 端口 {port} 扫描出错: {e}")
+    #     self.logger.info(f"完成扫描目标: {target}, 开放端口数量: {len(open_ports)}")
+    #     return sorted(open_ports)
     # def get_service_name(self,port):
     #     services={
     #         21:"FTP",

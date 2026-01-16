@@ -65,8 +65,8 @@ def load_xss_payload():
     with open(xss_payload_path, 'r',encoding='utf-8') as f:
         xss_payload = json.load(f)
     payload_list = xss_payload['xss_payloads']
-    for payload in payload_list:
-        print(f"xss_payload: {payload}\n")
+    #for payload in payload_list:
+        #print(f"xss_payload: {payload}\n")
     return payload_list
 
 def load_sqli_payload():
@@ -77,42 +77,151 @@ def load_sqli_payload():
         sqli_payload = json.load(f)
     return sqli_payload
 
-def save_results(results, filename, output_dir="output",type=None):
+# def save_results(results, filename, output_dir="output",type=None):
+#     """
+#     保存扫描结果到文件
+#     Args:
+#         results: 要保存的数据（字典）
+#         filename: 文件名（不包含路径）
+#         output_dir: 输出目录
+#     """
+#     try:
+#         # 确保输出目录存在
+#         os.makedirs(output_dir, exist_ok=True)
+        
+#         # 构建完整路径
+#         filepath = os.path.join(output_dir, filename)
+#         # 保存为JSON格式
+#         if type=="json":
+#             with open(filepath, 'w', encoding='utf-8') as f:
+#                 json.dump(results, f, indent=2, ensure_ascii=False)
+        
+#             print_colored(f"[+] (json)扫描结果已保存到: {filepath}", "green")
+#         elif type=="txt":
+        
+#             # 保存一个简化的文本摘要
+#             save_text_summary(results, filename.replace('.json', '_summary.txt'), output_dir)
+#             #print_colored(f"[+] (txt)扫描结果已保存到: {filepath.replace('.json', '_summary.txt')}", "green")
+#         else:
+#             with open(filepath, 'w', encoding='utf-8') as f:
+#                 json.dump(results, f, indent=2, ensure_ascii=False)
+        
+#             print_colored(f"[+] (json)扫描结果已保存到: {filepath}", "green")
+
+#             save_text_summary(results, filename.replace('.json', '_summary.txt'), output_dir)
+#             #print_colored(f"[+] (txt)扫描结果已保存到: {filepath.replace('.json', '_summary.txt')}", "green")
+#         return True
+#     except Exception as e:
+#         print_colored(f"[-] 保存结果失败: {e}", "red")
+#         return False
+
+def save_results(results, filename, output_dir="output", save_type=None):
     """
     保存扫描结果到文件
+    
     Args:
         results: 要保存的数据（字典）
         filename: 文件名（不包含路径）
         output_dir: 输出目录
+        save_type: 保存类型，可选值为 "json"、"txt"、"both" 或 None（默认为"both"）
     """
     try:
         # 确保输出目录存在
         os.makedirs(output_dir, exist_ok=True)
         
-        # 构建完整路径
-        filepath = os.path.join(output_dir, filename)
-        # 保存为JSON格式
-        if type=="json":
+        # 1. 清洁文件名，移除非法字符（特别是路径分隔符）
+        clean_filename = filename.replace('/', '_').replace('\\', '_')
+        
+        # 2. 构建完整路径
+        filepath = os.path.join(output_dir, clean_filename)
+        
+        # 3. 保存为JSON格式
+        if save_type == "json" or save_type is None:
             with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(results, f, indent=2, ensure_ascii=False)
+                json.dump(results, f, indent=2, ensure_ascii=False, default=str)
+            print_colored(f"[+] (JSON)扫描结果已保存到: {filepath}", "green")
         
-            print_colored(f"[+] (json)扫描结果已保存到: {filepath}", "green")
-        elif type=="txt":
+        # 4. 保存文本摘要（如果需要）
+        if save_type == "txt" or save_type == "both" or save_type is None:
+            # 生成文本摘要文件名
+            txt_filename = clean_filename.replace('.json', '_summary.txt')
+            txt_filepath = os.path.join(output_dir, txt_filename)
+            
+            try:
+                # 保存一个简化的文本摘要
+                summary_saved = save_text_summary(results, txt_filename, output_dir)
+                if summary_saved:
+                    print_colored(f"[+] (TXT)扫描摘要已保存到: {txt_filepath}", "green")
+            except Exception as txt_err:
+                print_colored(f"[-] 保存文本摘要失败: {txt_err}", "yellow")
         
-            # 保存一个简化的文本摘要
-            save_text_summary(results, filename.replace('.json', '_summary.txt'), output_dir)
-            #print_colored(f"[+] (txt)扫描结果已保存到: {filepath.replace('.json', '_summary.txt')}", "green")
-        else:
-            with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(results, f, indent=2, ensure_ascii=False)
-        
-            print_colored(f"[+] (json)扫描结果已保存到: {filepath}", "green")
-
-            save_text_summary(results, filename.replace('.json', '_summary.txt'), output_dir)
-            #print_colored(f"[+] (txt)扫描结果已保存到: {filepath.replace('.json', '_summary.txt')}", "green")
         return True
+    
     except Exception as e:
         print_colored(f"[-] 保存结果失败: {e}", "red")
+        # 添加调试信息
+        print(f"[DEBUG] 原始文件名: {filename}")
+        print(f"[DEBUG] 清洁后文件名: {clean_filename if 'clean_filename' in locals() else 'N/A'}")
+        print(f"[DEBUG] 输出目录: {output_dir}")
+        print(f"[DEBUG] 完整路径: {filepath if 'filepath' in locals() else 'N/A'}")
+        return False
+
+
+def save_text_summary(results, filename, output_dir="output"):
+    """
+    保存文本格式的扫描摘要
+    """
+    try:
+        filepath = os.path.join(output_dir, filename)
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
+            # 写入标题
+            f.write("=" * 60 + "\n")
+            f.write("扫描结果摘要\n")
+            f.write("=" * 60 + "\n\n")
+            
+            # 写入基本信息
+            target = results.get("target", "未知目标")
+            f.write(f"目标: {target}\n")
+            
+            # 写入扫描摘要信息
+            scan_summary = results.get("scan_summary", {})
+            if scan_summary:
+                f.write(f"扫描时间: {scan_summary.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}\n")
+                f.write(f"扫描端口数: {scan_summary.get('total_ports', 0)}\n")
+                f.write(f"发现漏洞数: {scan_summary.get('total_vulnerabilities', 0)}\n")
+            
+            # 写入开放端口信息
+            open_ports = results.get("open_ports", [])
+            f.write(f"\n开放端口 ({len(open_ports)}个):\n")
+            if open_ports:
+                for port in sorted(open_ports):
+                    f.write(f"  - 端口 {port}\n")
+            else:
+                f.write("  无开放端口\n")
+            
+            # 写入漏洞信息
+            vulnerabilities = results.get("vulnerabilities", [])
+            f.write(f"\n发现漏洞 ({len(vulnerabilities)}个):\n")
+            
+            if vulnerabilities:
+                for i, vuln in enumerate(vulnerabilities, 1):
+                    f.write(f"\n  {i}. {vuln.get('name', '未知漏洞')}\n")
+                    f.write(f"     描述: {vuln.get('description', '无描述')}\n")
+                    f.write(f"     风险等级: {vuln.get('risk_level', '未知')}\n")
+                    f.write(f"     置信度: {vuln.get('confidence', '未知')}\n")
+                    f.write(f"     位置: {vuln.get('location', '未知')}\n")
+            else:
+                f.write("  未发现漏洞\n")
+            
+            f.write("\n" + "=" * 60 + "\n")
+            f.write("扫描完成\n")
+            f.write("=" * 60 + "\n")
+        
+        return True
+    
+    except Exception as e:
+        print_colored(f"[-] 保存文本摘要失败: {e}", "red")
         return False
 
 def save_text_summary(results, filename, output_dir="output"):

