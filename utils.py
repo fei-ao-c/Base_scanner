@@ -53,6 +53,29 @@ def load_config(choice=None):
             print_colored(f"[-] 加载配置文件出错: {e}，使用默认配置", "yellow")
     return default_config
 
+def load_xss_payload():
+    """加载默认的xss_payload"""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+   # 使用 os.path.join 并规范化路径
+
+    # xss_payload_path = os.path.normpath(
+    #     os.path.join(current_dir, "payload", "xss.json")
+    # )
+    xss_payload_path=os.path.join(current_dir, "payload", "xss.json")
+    with open(xss_payload_path, 'r',encoding='utf-8') as f:
+        xss_payload = json.load(f)
+    payload_list = xss_payload['xss_payloads']
+    for payload in payload_list:
+        print(f"xss_payload: {payload}\n")
+    return payload_list
+
+def load_sqli_payload():
+    """加载默认的sqli_payload"""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    sqli_payload_path = os.path.join(current_dir, "payload", "sqli.json")
+    with open(sqli_payload_path, 'r',encoding='utf-8') as f:
+        sqli_payload = json.load(f)
+    return sqli_payload
 
 def save_results(results, filename, output_dir="output",type=None):
     """

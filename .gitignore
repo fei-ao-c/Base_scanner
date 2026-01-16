@@ -7,3 +7,93 @@ __pycache__/
 # 可选：忽略虚拟环境目录
 env/
 venv/
+# 扫描器项目特定
+# 配置文件（可能包含敏感信息）
+config.ini
+config.yaml
+config.json
+secrets.json
+.env
+.env.local
+
+# 扫描结果和报告
+results/
+output/
+reports/
+*.pdf
+*.html
+*.csv
+*.xlsx
+
+# 日志文件
+*.log
+logs/
+debug.log
+error.log
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 临时文件
+temp/
+tmp/
+*.tmp
+*.temp
+
+# 会话和缓存
+.session
+.cache
+
+# 备份文件
+*.bak
+*.backup
+*.old
+
+# IDE 文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 可执行文件和二进制文件
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin
+
+# 压缩文件
+*.zip
+*.tar
+*.tar.gz
+*.rar
+
+# 上传文件
+uploads/
+downloads/
+# Windows
+# 文件夹
+[Tt]humbs.db
+Desktop.ini
+
+# 回收站
+$RECYCLE.BIN/
+
+# 临时文件
+*.tmp
+*.temp
+
+# 快捷方式
+*.lnk
+
+# Windows 搜索
+*.search-ms

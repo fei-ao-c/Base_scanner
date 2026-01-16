@@ -354,8 +354,11 @@ class VulnerabilityScanner:
 
             # XSS检测
             self.logger.main_logger.info(f"开始XSS检测: {url}")
-            xss_vulns,scan_results=scanner.check_xss(url)
-            
+            #两个函数，多一个dom—xss扫描
+            xss_vulns_dom,scan_results_dom=scanner.check_dom_xss(url)
+            xss_vulns_fc,scan_results_fc=scanner.check_xss(url)
+            xss_vulns=xss_vulns_dom+xss_vulns_fc
+            scan_results=scan_results_dom | scan_results_fc
             self.results={**self.results,**scan_results}
             for vuln in xss_vulns:
                 vuln['url']=url
