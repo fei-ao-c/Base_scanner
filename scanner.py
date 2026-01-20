@@ -329,7 +329,7 @@ class VulnerabilityScanner:
             scanner=sampilescanner()
             vulnerabilities=[]
 
-            # sql注入检测
+            # sql注入检测 【在这里添加输入框选择功能，可选择POST或GET】
             self.logger.main_logger.info(f"开始SQL注入检测: {url}")
             sql_vulns,scan_results=scanner.check_sql_injection(url)
             

