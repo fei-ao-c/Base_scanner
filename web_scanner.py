@@ -1491,8 +1491,5 @@ class sampilescanner:
                 else:
                     self.logger.error(f"爬取链接失败: {url}, 错误: {e}")
         return []
-    # def get_result(result):
-    #     if result is not None:
-    #         return result
             
         

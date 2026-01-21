@@ -72,15 +72,15 @@ def load_xss_payload():
 def load_sqli_config():
     """加载默认的sqli_payload"""
     try:
-        if os.path.exists("config/sqli.json"):
-            with open("config/sqli.json", 'r',encoding='utf-8') as f:
+        if os.path.exists("payload/sql_injection.json"):
+            with open("payload/sql_injection.json", 'r',encoding='utf-8') as f:
                 config=json.load(f)
             return config
         else:
-            print_colored("[-] 缺少sqli.json配置文件，使用默认配置！", "red")
+            print_colored("[-] 缺少sql_injection.json配置文件，使用默认配置！", "red")
             return get_default_sqli_config()
     except json.JSONDecodeError as e:
-        print_colored(f"[-] 解析sqli.json配置文件出错: {e}", "red")
+        print_colored(f"[-] 解析sql_injection.json配置文件出错: {e}", "red")
         return get_default_sqli_config()
 
 def get_default_sqli_config():

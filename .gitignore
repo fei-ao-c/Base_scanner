@@ -3,6 +3,7 @@
 
 # 忽略 __pycache__ 目录（Python 3.2+ 生成）
 __pycache__/
+*.pyc
 
 # 可选：忽略虚拟环境目录
 env/
