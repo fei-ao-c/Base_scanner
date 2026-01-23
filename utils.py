@@ -273,7 +273,7 @@ def save_results(results, filename, output_dir="output", save_type=None):
         results: 要保存的数据（字典）
         filename: 文件名（不包含路径）
         output_dir: 输出目录
-        save_type: 保存类型，可选值为 "json"、"txt"、"both" 或 None（默认为"both"）
+        save_type: 保存类型，可选值为 "json"、"txt"、"all" 或 None（默认为"all"）
     """
     try:
         # 确保输出目录存在
@@ -286,13 +286,13 @@ def save_results(results, filename, output_dir="output", save_type=None):
         filepath = os.path.join(output_dir, clean_filename)
         
         # 3. 保存为JSON格式
-        if save_type == "json" or save_type is None:
+        if save_type == "json" or save_type == "all" or save_type is None:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(results, f, indent=2, ensure_ascii=False, default=str)
             print_colored(f"[+] (JSON)扫描结果已保存到: {filepath}", "green")
         
         # 4. 保存文本摘要（如果需要）
-        if save_type == "txt" or save_type == "both" or save_type is None:
+        if save_type == "txt" or save_type == "all" or save_type is None:
             # 生成文本摘要文件名
             txt_filename = clean_filename.replace('.json', '_summary.txt')
             txt_filepath = os.path.join(output_dir, txt_filename)
@@ -423,7 +423,7 @@ def save_text_summary(results, filename, output_dir="output"):
             
             f.write("\n" + "=" * 60 + "\n")
         
-        print_colored(f"[+] 文本摘要已保存到: {filepath}", "green")
+        #print_colored(f"[+] 文本摘要已保存到: {filepath}", "green")
         return True
     except Exception as e:
         print_colored(f"[-] 保存文本摘要失败: {e}", "yellow")

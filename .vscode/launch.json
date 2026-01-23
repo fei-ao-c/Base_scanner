@@ -8,8 +8,9 @@
             "program": "${workspaceFolder}/scanner.py",
             "console": "integratedTerminal",
             "args": [
-                "127.0.0.1",
-                "-p","1-10",
+                "http://www.sqli-labs.com/Less-1?a=1",
+                "-p","80-100",
+                "-o","all"
                 
             ],
             // 关键点：设置当前工作目录为项目根目录

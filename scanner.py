@@ -25,7 +25,7 @@ except ImportError as e:
 class VulnerabilityScanner:
     def __init__(self,config=None,log_dir='logs',args=None):
         self.config =  config or load_config(True)
-        # print(f"加载配置: {self.config}")
+        print(f"DEBUG加载配置: {self.config}")
         # 保存外部传来的 args
         self.args = args 
 
@@ -74,171 +74,6 @@ class VulnerabilityScanner:
         }
         #记录初始化
         self.logger.main_logger.info(f"初始化漏洞扫描器完成,扫描ID: {self.scan_id}")
-
-    # def send_controlled_request(self,request_info):
-    #     """发送受控制的请求"""
-    #     def _make_request():
-    #         method=request_info.get("method","GET")
-    #         url=request_info.get("url")
-
-    #         if not url:
-    #             raise ValueError("请求 URL 不能为空")
-            
-    #         #发送请求
-    #         response=self.request_sender.send_request(
-    #             method=method,
-    #             url=url,
-    #             params=request_info.get("params"),
-    #             data=request_info.get("data"),
-    #             json_data=request_info.get("json"),
-    #             headers=request_info.get("headers"),
-    #             cookies=request_info.get("cookies"),
-    #             allow_redirects=request_info.get("allow_redirects",True),
-    #         )
-
-    #         #解析响应
-    #         parsed_response=self.response_parser.parse_response(
-    #             response,
-    #             extract_links=True,
-    #             extract_forms=True,
-    #             base_url=url,
-    #         )
-
-    #         return {
-    #             'request':request_info,
-    #             'response':{
-    #                 'status_code':response.status_code,
-    #                 'url':str(response.url),
-    #                 'headers':dict(response.headers),
-    #                 'content_length': len(response.content),
-    #             },
-    #             'parsed':parsed_response,
-    #         }
-    #     #提交到队列
-    #     task_id=f"req_{int(time.time()*1000)}_{hash(str(request_info))%10000}"
-
-    #     self.request_queue.submit(task_id,_make_request)
-
-    #     #等待结果
-    #     try:
-    #         result=self.request_queue.get_result(task_id,timeout=30)
-
-    #         #记录结果
-    #         self._record_request_result(result)
-    #         return result
-    #     except Exception as e:
-    #         self.logger.error_logger.error(f"请求失败：{request_info.get('url')} - {e}")
-    #         return None
-        
-    # def _record_request_result(self,result):
-    #     """记录请求结果"""
-    #     if not result:
-    #         return
-        
-    #     self.results['requests'].append(result['request'])
-    #     self.results['responses'].append(result['response'])
-
-    #     #分析响应中的敏感信息
-    #     self._analyze_response_for_sensitive_info(result)
-
-    #     #检查常见漏洞
-    #     self._check_response_for_vulnerabilities(result)
-
-    #     ###测试
-    #     print(f"请求结果: {result}")
-
-    # def _analyze_response_for_sensitive_info(self,result):
-    #     """分析响应中的敏感信息"""
-    #     parsed=result.get('parsed',{})
-
-    #     if not parsed.get('parsed_content'):
-    #         return
-        
-    #     #提取敏感信息
-    #     sensitive_patterns={
-    #         'api_keys': r'(?:api[_-]?key|access[_-]?token|secret[_-]?key)[\s:=]+["\']?([a-zA-Z0-9_\-]{20,})["\']?',
-    #         'passwords': r'(?:password|passwd|pwd)[\s:=]+["\']?([^\s"\']+)["\']?',
-    #         'emails': r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
-    #         'ip_addresses': r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b',
-    #         'credit_cards': r'\b(?:\d{4}[ -]?){3}\d{4}\b',
-    #         'jwt_tokens': r'\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b'
-    #     }
-
-    #     content_text=str(parsed.get('parsed_content',''))
-
-    #     for info_type,pattern in sensitive_patterns.items():
-    #         matches= self.response_parser.find_pattern(content_text,{info_type:pattern})
-    #         if matches.get(info_type):
-    #             self.logger.log_vulnerability_found(
-    #                 result['request'].get('url'),
-    #                 f"敏感信息泄露: {info_type}",
-    #                 "中",
-    #                 matches[info_type][:3] #只记录前3个匹配项
-    #             )
-
-    # def _check_response_for_vulnerabilities(self,result):
-    #     """检查常见漏洞"""
-    #     response=result.get('response',{})
-    #     parsed=result.get('parsed',{})
-
-    #     #检查安全头
-    #     headers=response.get('headers',{})
-    #     self._check_security_headers(headers,result['request'].get('url'))
-
-    #     #检查响应中的漏洞迹象
-    #     if parsed.get('content_type')=='html':
-    #         self._check_html_for_vulnerabilities(parsed,result['request'].get('url'))
-
-    # def _check_security_headers(self,headers,url):
-    #     """检查安全头"""
-    #     security_headers={
-    #         'X-Content-Type-Options': 'nosniff',
-    #         'X-Frame-Options': ['DENY', 'SAMEORIGIN'],
-    #         'Content-Security-Policy': None,  # 只要存在就行
-    #         'Strict-Transport-Security': None,
-    #         'X-XSS-Protection': '1; mode=block'
-    #     }
-
-    #     missing_headers=[]
-
-    #     for header,excepted_value in security_headers.items():
-    #         if header not in headers:
-    #             missing_headers.append(header)
-    #         elif excepted_value and headers[header] != excepted_value:
-    #             self.logger.log_vulnerability_found(
-    #                 url,
-    #                 f"安全头缺失或配置错误: {header}",
-    #                 "低",
-    #                 f"当前值：{headers[header]},推荐值：{excepted_value}"
-    #             )
-        
-    #     if missing_headers:
-    #         self.logger.log_vulnerability_found(
-    #             url,
-    #             "安全头缺失",
-    #             "中",
-    #             f"缺失头: {', '.join(missing_headers)}"
-    #         )
-
-    # def _check_html_for_vulnerabilities(self,parsed,url):
-    #     """检查 HTML 响应中的漏洞"""
-    #     soup=parsed.get('parsed_content')
-    #     if not soup:
-    #         return
-        
-    #     #检查调试信息
-    #     debug_keywords=['debug','test','localhost','127.0.0.1','phpinfo']
-    #     html_text=str(soup).lower()
-
-    #     for keywords in debug_keywords:
-    #         if keywords in html_text:
-    #             self.logger.log_vulnerability_found(
-    #                 url,
-    #                 f"调试信息泄露",
-    #                 "低",
-    #                 f"存在关键字: {keywords}"
-    #             )
-    #             break
 
 
     def parse_range(self,range_str):
@@ -326,7 +161,7 @@ class VulnerabilityScanner:
         start_time=time.time()
 
         try:
-            scanner=sampilescanner()
+            scanner=sampilescanner(self.config)
             vulnerabilities=[]
 
             # sql注入检测 【在这里添加输入框选择功能，可选择POST或GET】
@@ -623,69 +458,6 @@ class VulnerabilityScanner:
 
         return result
 
-    # def scan_with_rate_control(self,target,ports=None,type=None):
-    #     """使用速率控制的扫描"""
-    #     self.results["target"]=target
-    #     print(f"开始扫描目标: {target}")
-    #     print("[*]" + "=" *50)
-    #     self.port=ports
-    #     self.type=type
-    #     # 记录扫描开始
-    #     self.logger.log_scan_start(target, "完整扫描")
-
-    #     try:
-    #         #1.端口扫描
-    #         self.logger.main_logger.info("阶段1: 端口扫描")
-    #         ports=self.run_port_scan(target,ports=self.port)
-    #         self.results["open_ports"]=ports
-    #         #收集漏洞信息
-
-    #         #2.web漏洞扫描(如果发现http/https端口)
-    #         web_urls=self._identify_web_services(target,ports)
-    #         if web_urls:
-    #             self.logger.main_logger.info(f"扫描Web漏洞: {web_urls}")
-    #             vulns=self.run_web_scan(web_urls)
-    #             # print(f'{vulns}+"------------"')
-    #             self.results["vulnerabilities"]=vulns
-    #         else:
-    #             print("未发现Web服务端口，跳过Web漏洞扫描。")
-    #             self.results["vulnerabilities"]=[]
-            
-    #         #3.收集统计信息
-    #         #self._collect_statistics_zong() #这里没发挥作用，因为没有进行web服务扫描
-
-    #         #4.更新扫描摘要
-    #         self.results["scan_summary"]={
-    #             "total_ports":len(ports),
-    #             "total_vulnerabilities":len(self.results["vulnerabilities"]),
-    #             "high_risk_vulns":[v for v in self.results["vulnerabilities"] if v["confidence"]=="高"],
-    #             "medium_risk_vulns":[v for v in self.results["vulnerabilities"] if v["confidence"]=="中"]
-    #         }
-    #         #5.调用save_results函数保存结果
-    #         timestamp=datetime.now().strftime("%Y%m%d_%H%M%S")
-    #         #保存完整结果
-    #         filename=f"scan_results_{target}_{timestamp}.json"
-    #         #确保output目录存在
-    #         os.makedirs("output",exist_ok=True)
-    #         #调用save_results函数
-            
-    #         save_results(self.results, filename,"output",self.type)
-    #         #6.显示摘要
-    #         self.show_summary()
-
-    #         self.logger.main_logger.info(f"扫描完成: {target}")
-    #         self._add_log_entry(f"扫描完成","所有扫描任务已完成。")
-    #     except KeyboardInterrupt:
-    #         print("\n[-] 扫描被用户中断")
-    #         if self.results["open_ports"] or self.results["vulnerabilities"]:
-    #             timestamp=datetime.now().strftime("%Y%m%d_%H%M%S")
-    #             filename=f"scan_results_{target}_partial_{timestamp}.json"
-    #             save_results(self.results,filename)
-    #             print(f"[!] 部分结果已保存为 output/{filename}")
-    #     except Exception as e:
-    #         print(f"\n[-] 扫描过程中出现错误: {e}")
-    #         import traceback
-    #         traceback.print_exc()
 
     def _identify_web_services(self, host, ports):
         """
@@ -713,31 +485,6 @@ class VulnerabilityScanner:
         
         return web_urls
     
-    # def _collect_statistics_zong(self,totals={}):
-    
-    # def _identify_web_services(self, target, ports):
-    #     """识别Web服务"""
-    #     web_urls = []
-        
-    #     for port_info in ports:
-    #         port = port_info.get("port")
-            
-    #         # 常见Web端口
-    #         if port in [80, 443, 8080, 8443, 8000, 8888]:
-    #             protocol = "https" if port in [443, 8443] else "http"
-    #             web_urls.append(f"{protocol}://{target}:{port}")
-            
-    #         # 其他可能运行Web服务的端口
-    #         elif port in [3000, 5000, 7000, 9000]:
-    #             # 尝试HTTP和HTTPS
-    #             for protocol in ["http", "https"]:
-    #                 web_urls.append(f"{protocol}://{target}:{port}")
-        
-    #     return list(set(web_urls))
-    
-    # def _collect_statistics_zong(self,totals={}):
-    #     """收集总统计信息"""
-    #     self.results={**self.results,**totals}
         
     
 #下面是显示扫描摘要的函数
@@ -814,9 +561,9 @@ def main():
     parser.add_argument("--no-log",help="禁用日志",action="store_true")
     parser.add_argument("--view-log",help="查看日志",metavar="FILE")
     parser.add_argument("--analyze-logs",help="分析日志",action="store_true")
+    parser.add_argument("-rps", "--requests-per-second", type=int, default=20,help="每秒最大请求数")
+    parser.add_argument("-rpm", "--requests-per-minute", type=int, default=200,help="每分钟最大请求数")
     #下面的要进行测试判断----------------------------------------------------------
-    parser.add_argument("-rps", "--requests-per-second", type=int, default=10,help="每秒最大请求数")
-    parser.add_argument("-rpm", "--requests-per-minute", type=int, default=60,help="每分钟最大请求数")
     parser.add_argument("-c", "--concurrent", type=int, default=5,help="最大并发请求数")
     parser.add_argument("-t", "--timeout", type=int, default=10,help="请求超时时间(秒)")
     parser.add_argument("--no-ssl-verify", action="store_true",help="不验证SSL证书")

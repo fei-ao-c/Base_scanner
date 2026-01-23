@@ -1508,15 +1508,27 @@ from urllib.parse import quote, unquote, urlparse, parse_qs, urljoin, urlunparse
 from bs4 import BeautifulSoup
 
 # 导入模块（假设模块结构不变）
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
     from modules.request_manager import RateLimiter
     from modules.request_queue import RequestQueueManager
     from modules.request_sender import RequestSender
     from modules.request_builder import RequestBuilder
     from modules.response_parse import ResponseParse
-    from utils import load_config, load_xss_payload,load_sqli_config
+    from utils import load_config, load_sqli_config, load_xss_payload
+    
+    print("✅ 所有模块导入成功")
 except ImportError as e:
-    print(f"导入模块失败: {e}")
+    print(f"❌ 导入模块失败: {e}")
+    print("请确保以下模块存在：")
+    print("1. modules/request_manager.py")
+    print("2. modules/request_queue.py")
+    print("3. modules/request_sender.py")
+    print("4. modules/request_builder.py")
+    print("5. modules/response_parse.py")
+    print("6. utils.py")
+    sys.exit(1)
 
 class sampilescanner:
     def __init__(self, config=None):
@@ -1534,8 +1546,8 @@ class sampilescanner:
         
         # 初始化速率限制器
         self.rate_limiter = RateLimiter(
-            max_requests_per_second=self.config.get("max_requests_per_second", 10),
-            max_requests_per_minute=self.config.get("max_requests_per_minute", 60)
+            max_requests_per_second=self.config.get("max_requests_per_second", 20),
+            max_requests_per_minute=self.config.get("max_requests_per_minute", 200)
         )
         
         # 初始化请求队列
@@ -1745,8 +1757,100 @@ class sampilescanner:
             'scan_duration': f"{time.time():.2f}s"
         }
 
+    # def send_controlled_request(self, request_info):
+    #     """发送受控制的请求"""
+    #     def _make_request():
+    #         method = request_info.get('method', 'GET')
+    #         url = request_info.get('url')
+
+    #         if not url:
+    #             raise ValueError("请求URL不能为空")
+
+    #         # 发送请求
+    #         response = self.request_sender.send_request(
+    #             method=method,
+    #             url=url,
+    #             params=request_info.get('params'),
+    #             data=request_info.get('data'),
+    #             json_data=request_info.get('json'),
+    #             headers=request_info.get('headers'),
+    #             cookies=request_info.get('cookies'),
+    #             allow_redirects=request_info.get('allow_redirects', True)
+    #         )
+
+    #         # 确保响应文本是字符串
+    #         response_text = response.text
+    #         if not isinstance(response_text, str):
+    #             if response_text is None:
+    #                 response_text = ''
+    #             else:
+    #                 response_text = str(response_text)
+
+    #         # 确保响应内容长度是整数
+    #         content_length = len(response.content) if hasattr(response, 'content') else 0
+
+    #         # 解析响应
+    #         parsed_response = {}
+    #         if hasattr(self.response_parser, 'parse_response'):
+    #             try:
+    #                 parsed_response = self.response_parser.parse_response(
+    #                     response,
+    #                     extract_links=True,
+    #                     extract_forms=True,
+    #                     base_url=url
+    #                 )
+    #             except Exception as e:
+    #                 print(f"解析响应时出错: {e}")
+    #                 parsed_response = {}
+
+    #         return {
+    #             'request': request_info,
+    #             'response': {
+    #                 'status_code': response.status_code if hasattr(response, 'status_code') else 0,
+    #                 'url': str(response.url) if hasattr(response, 'url') else url,
+    #                 'headers': dict(response.headers) if hasattr(response, 'headers') else {},
+    #                 'text': response_text,
+    #                 'content': response_text,
+    #                 'content_length': content_length
+    #             },
+    #             'parsed': parsed_response
+    #         }
+
+    #     # 提交到队列
+    #     task_id = f"req_{int(time.time() * 1000)}_{hash(str(request_info)) % 10000}"
+
+    #     self.request_queue.submit(task_id, _make_request)
+
+    #     # 等待结果
+    #     try:
+    #         result = self.request_queue.get_result(task_id, timeout=30)
+
+    #         # 记录结果
+    #         self._record_request_result(result)
+
+    #         return result
+
+    #     except Exception as e:
+    #         self.logger.error(f"请求失败: {request_info.get('url')} - {e}") if self.logger else print(f"请求失败: {request_info.get('url')} - {e}")
+    #         return None
     def send_controlled_request(self, request_info):
         """发送受控制的请求"""
+        # 添加安全的调试信息
+        # try:
+        #     # 尝试获取队列状态（使用实际存在的属性）
+        #     if hasattr(self.request_queue, 'get_statistics'):
+        #         stats = self.request_queue.get_statistics()
+        #         print(f"[DEBUG] 队列状态: {stats}")
+        # except:
+        #     pass
+        
+        # try:
+        #     if hasattr(self.rate_limiter, 'get_stats'):
+        #         rate_stats = self.rate_limiter.get_stats()
+        #         print(f"[DEBUG] 速率限制状态: {rate_stats}")
+        # except:
+        #     pass
+        
         def _make_request():
             method = request_info.get('method', 'GET')
             url = request_info.get('url')
@@ -1807,7 +1911,21 @@ class sampilescanner:
         # 提交到队列
         task_id = f"req_{int(time.time() * 1000)}_{hash(str(request_info)) % 10000}"
 
-        self.request_queue.submit(task_id, _make_request)
+        #print(f"[DEBUG] 提交任务: {task_id} - URL: {request_info.get('url', 'N/A')}")
+
+        try:
+            self.request_queue.submit(task_id, _make_request)
+        except Exception as e:
+            print(f"[ERROR] 提交任务失败: {e}")
+            # 如果队列提交失败，尝试直接执行请求
+            print("[INFO] 尝试直接执行请求...")
+            try:
+                result = _make_request()
+                self._record_request_result(result)
+                return result
+            except Exception as e2:
+                print(f"[ERROR] 直接请求也失败: {e2}")
+                return None
 
         # 等待结果
         try:
@@ -1816,10 +1934,16 @@ class sampilescanner:
             # 记录结果
             self._record_request_result(result)
 
+            #print(f"[DEBUG] 任务完成: {task_id} - 状态码: {result.get('response', {}).get('status_code', 'N/A')}")
+
             return result
 
         except Exception as e:
-            self.logger.error(f"请求失败: {request_info.get('url')} - {e}") if self.logger else print(f"请求失败: {request_info.get('url')} - {e}")
+            error_msg = f"请求失败: {request_info.get('url')} - {e}"
+            if self.logger:
+                self.logger.error(error_msg)
+            else:
+                print(error_msg)
             return None
 
     def _record_request_result(self, result):
@@ -3047,7 +3171,18 @@ class sampilescanner:
         return False, "无", "未发现XSS漏洞"
 
     def check_xss(self, url_input, method='GET', data=None, cookies=None, headers=None):
-        """完整的XSS扫描功能"""
+        """完整的XSS扫描功能
+        
+        Args:
+            url_input: 单个URL字符串或URL列表
+            method: 请求方法 (GET, POST)
+            data: POST数据 (字典格式)
+            cookies: cookie字典
+            headers: 请求头字典
+            
+        Returns:
+            tuple: (漏洞列表, 扫描结果)
+        """
         vulnerabilities = []
         
         # 统一处理输入：将单个URL转换为列表
