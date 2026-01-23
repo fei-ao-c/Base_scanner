@@ -408,6 +408,8 @@ class VulnerabilityScanner:
             self._add_log_entry("web扫描错误",str(e), level="ERROR")
             return []
 
+    
+
     def _add_log_entry(self, action, message, level="INFO"):
         """添加日志条目到结果中"""
         log_entry = {
