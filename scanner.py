@@ -344,6 +344,7 @@ class VulnerabilityScanner:
             filename = f"scan_results_{safe_host_name}_{timestamp}.json"
             #filename = f"scan_results_{scan_host}_{timestamp}.json"
             os.makedirs("output", exist_ok=True)
+            print(f"[++++++]DEBUG,{self.results}")
             save_results(self.results, filename, "output", self.type)
 
             # 6. 显示摘要
@@ -555,7 +556,7 @@ def main():
     parser=argparse.ArgumentParser(description="简易漏洞扫描工具")
     parser.add_argument("target",help="扫描目标IP或域名")
     parser.add_argument("-p","--ports",help="扫描端口范围,例如 1-1000") 
-    parser.add_argument("-o","--output",help="输出报告文件名",choices=["json","txt","all"],default="all")
+    parser.add_argument("-o","--output",help="输出报告文件名",choices=["json","txt","html","all"],default="all")
     parser.add_argument("--log-dir",help="日志目录",default="logs")
     parser.add_argument("--log-level",help="日志级别",choices=['DEBUG','INFO','WARNING','ERROR'],default="INFO")#现在不可指定
     parser.add_argument("--no-log",help="禁用日志",action="store_true")
