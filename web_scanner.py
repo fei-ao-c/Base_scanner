@@ -108,22 +108,7 @@ class sampilescanner:
             "length_variation_threshold": 0.3
         }
 
-    # def load_sql_config(self, config_file):
-    #     """加载SQL注入配置文件"""
-    #     try:
-    #         with open(config_file, 'r', encoding='utf-8') as f:
-    #             config = json.load(f)
-    #             print(f"✅ 成功加载SQL注入配置文件: {config_file}")
-    #             return config
-    #     except FileNotFoundError:
-    #         print(f"⚠️  配置文件 {config_file} 未找到，使用默认配置")
-    #         return self._get_default_sql_config()
-    #     except json.JSONDecodeError as e:
-    #         print(f"❌ 配置文件 {config_file} JSON格式错误: {e}")
-    #         return self._get_default_sql_config()
-    #     except Exception as e:
-    #         print(f"❌ 加载配置文件失败: {e}")
-    #         return self._get_default_sql_config()
+
 
     def _get_default_xss_payloads(self):
         """默认XSS payloads"""
@@ -335,6 +320,58 @@ class sampilescanner:
     #     except Exception as e:
     #         self.logger.error(f"请求失败: {request_info.get('url')} - {e}") if self.logger else print(f"请求失败: {request_info.get('url')} - {e}")
     #         return None
+
+
+    def parse_cookies(self,cookies_str):
+        """
+        将cookies字符串转换为字典
+        支持格式：
+        1. "name1=value1; name2=value2" (分号分隔)
+        2. JSON格式: '{"name1": "value1", "name2": "value2"}'
+        3. 已经是字典则直接返回
+        """
+        if not cookies_str:
+            return {}
+
+        # 如果已经是字典，直接返回
+        if isinstance(cookies_str, dict):
+            return cookies_str
+
+        # 如果是字符串
+        if isinstance(cookies_str, str):
+            # 尝试去除前后空格
+            cookies_str = cookies_str.strip()
+
+            # 情况1：尝试解析为JSON（通常以{开头）
+            if cookies_str.startswith('{') and cookies_str.endswith('}'):
+                try:
+                    return json.loads(cookies_str)
+                except json.JSONDecodeError:
+                    # 如果不是合法JSON，继续尝试其他格式
+                    pass
+                
+            # 情况2：分号分隔格式（常见于浏览器复制或HTTP头）
+            cookies_dict = {}
+            # 先按分号分割
+            pairs = cookies_str.split(';')
+            for pair in pairs:
+                pair = pair.strip()
+                if not pair:
+                    continue
+                # 按等号分割，最多分割一次（因为值中可能包含等号）
+                if '=' in pair:
+                    key, value = pair.split('=', 1)
+                    cookies_dict[key.strip()] = value.strip()
+                else:
+                    # 如果没有等号，可能是只有key没有value的情况
+                    # 根据需求，可以忽略或作为空值处理
+                    cookies_dict[pair] = ''
+
+            return cookies_dict
+
+        # 其他类型，返回空字典或抛出异常
+        return {}
+
     def send_controlled_request(self, request_info):
         """发送受控制的请求"""
         # 添加安全的调试信息
@@ -352,7 +389,9 @@ class sampilescanner:
         #         print(f"[DEBUG] 速率限制状态: {rate_stats}")
         # except:
         #     pass
-        
+        cookies_str=self.config.get("cookies")
+        cookies = self.parse_cookies(cookies_str)
+        #print(cookies)
         def _make_request():
             method = request_info.get('method', 'GET')
             url = request_info.get('url')
@@ -368,10 +407,10 @@ class sampilescanner:
                 data=request_info.get('data'),
                 json_data=request_info.get('json'),
                 headers=request_info.get('headers'),
-                cookies=request_info.get('cookies'),
+                cookies=cookies,
                 allow_redirects=request_info.get('allow_redirects', True)
             )
-
+            #print(request_info.get('cookies'))
             # 确保响应文本是字符串
             response_text = response.text
             if not isinstance(response_text, str):
@@ -1302,7 +1341,7 @@ class sampilescanner:
                     print(f"   可信度: {vuln['confidence']}")
                     if 'error_indicator' in vuln:
                         print(f"   错误指示: {vuln['error_indicator']}")
-                    print()
+                    #print()
 
             # 更新全局结果
             self.results['vulnerabilities'].extend(vulnerabilities)
@@ -1943,544 +1982,3 @@ class sampilescanner:
         
         return unique_links
 
-#     # ==================== 全面扫描功能 ====================
-#     def full_scan(self, url_input, scan_types=None):
-#         """
-#         全面的Web安全扫描
-#         Args:
-#             url_input: 单个URL字符串或URL列表
-#             scan_types: 扫描类型列表 ['sql', 'xss', 'crawl']
-#         Returns:
-#             dict: 扫描结果
-#         """
-#         if scan_types is None:
-#             scan_types = ['crawl', 'sql', 'xss']
-        
-#         print(f"\n{'='*60}")
-#         print("开始全面Web安全扫描")
-#         print(f"扫描类型: {scan_types}")
-#         print(f"{'='*60}")
-        
-#         # 统一处理输入：将单个URL转换为列表
-#         if isinstance(url_input, str):
-#             urls = [url_input]
-#         elif isinstance(url_input, list):
-#             urls = url_input
-#         else:
-#             raise TypeError(f"url_input必须是字符串或列表，但得到{type(url_input)}")
-        
-#         scan_start_time = time.time()
-        
-#         # 爬虫阶段
-#         crawled_urls = []
-#         if 'crawl' in scan_types:
-#             print("\n[阶段1] 网站爬取...")
-#             for url in urls:
-#                 print(f"爬取: {url}")
-#                 links = self.crawl_links(url)
-#                 crawled_urls.extend(links)
-            
-#             # 去重并添加原始URL
-#             all_urls = list(set(urls + crawled_urls))
-#             print(f"\n✅ 总共发现 {len(all_urls)} 个唯一URL")
-#         else:
-#             all_urls = urls
-        
-#         # SQL注入扫描
-#         sql_vulnerabilities = []
-#         if 'sql' in scan_types:
-#             print("\n[阶段2] SQL注入扫描...")
-#             for url in all_urls:
-#                 print(f"\n扫描: {url}")
-                
-#                 # 解析URL参数
-#                 parsed = urlparse(url)
-#                 query_params = parse_qs(parsed.query)
-                
-#                 if query_params:
-#                     # 对每个参数进行SQL注入检测
-#                     for param_name, values in query_params.items():
-#                         if values:
-#                             try:
-#                                 print(f"  测试参数: {param_name}")
-#                                 result, details = self.check_sql_injection(
-#                                     url=url,
-#                                     param_name=param_name,
-#                                     param_value=values[0],
-#                                     method="GET"
-#                                 )
-                                
-#                                 if result and result.get('vulnerable'):
-#                                     print(f"  ⚠️  发现SQL注入漏洞！可信度: {result.get('confidence', 'N/A')}")
-#                                     sql_vulnerabilities.extend(details)
-#                             except Exception as e:
-#                                 print(f"  参数 {param_name} 扫描出错: {e}")
-#                 else:
-#                     # 如果没有参数，使用默认参数测试
-#                     try:
-#                         result, details = self.check_sql_injection(
-#                             url=url,
-#                             param_name="id",
-#                             param_value="1",
-#                             method="GET"
-#                         )
-                        
-#                         if result and result.get('vulnerable'):
-#                             print(f"  ⚠️  发现SQL注入漏洞！可信度: {result.get('confidence', 'N/A')}")
-#                             sql_vulnerabilities.extend(details)
-#                     except Exception as e:
-#                         print(f"  默认参数扫描出错: {e}")
-        
-#         # XSS扫描
-#         xss_vulnerabilities = []
-#         if 'xss' in scan_types:
-#             print("\n[阶段3] XSS漏洞扫描...")
-#             for url in all_urls:
-#                 print(f"\n扫描: {url}")
-#                 try:
-#                     vulns, _ = self.check_xss(url, method='GET')
-#                     xss_vulnerabilities.extend(vulns)
-#                 except Exception as e:
-#                     print(f"  XSS扫描出错: {e}")
-        
-#         # DOM XSS扫描
-#         dom_xss_vulnerabilities = []
-#         if 'xss' in scan_types:
-#             print("\n[阶段4] DOM型XSS扫描...")
-#             for url in all_urls:
-#                 try:
-#                     vulns, _ = self.check_dom_xss(url)
-#                     dom_xss_vulnerabilities.extend(vulns)
-#                 except Exception as e:
-#                     print(f"  DOM XSS扫描出错: {e}")
-        
-#         # 合并所有漏洞
-#         all_vulnerabilities = sql_vulnerabilities + xss_vulnerabilities + dom_xss_vulnerabilities
-        
-#         # 计算扫描时间
-#         scan_time = time.time() - scan_start_time
-        
-#         # 生成最终报告
-#         report = self._generate_comprehensive_report(
-#             all_urls=all_urls,
-#             sql_vulnerabilities=sql_vulnerabilities,
-#             xss_vulnerabilities=xss_vulnerabilities,
-#             dom_xss_vulnerabilities=dom_xss_vulnerabilities,
-#             scan_time=scan_time
-#         )
-        
-#         print(f"\n{'='*60}")
-#         print("全面扫描完成！")
-#         print(f"扫描URL数量: {len(all_urls)}")
-#         print(f"发现漏洞总数: {len(all_vulnerabilities)}")
-#         print(f"扫描耗时: {scan_time:.2f}秒")
-#         print(f"{'='*60}")
-        
-#         return report
-
-#     def _generate_comprehensive_report(self, all_urls, sql_vulnerabilities, 
-#                                      xss_vulnerabilities, dom_xss_vulnerabilities, scan_time):
-#         """生成全面扫描报告"""
-#         report = {
-#             'scan_summary': {
-#                 'total_urls_scanned': len(all_urls),
-#                 'scan_duration_seconds': round(scan_time, 2),
-#                 'scan_timestamp': time.strftime("%Y-%m-%d %H:%M:%S"),
-#                 'total_vulnerabilities': len(sql_vulnerabilities) + len(xss_vulnerabilities) + len(dom_xss_vulnerabilities)
-#             },
-#             'sql_injection': {
-#                 'total_found': len(sql_vulnerabilities),
-#                 'vulnerabilities': sql_vulnerabilities,
-#                 'statistics': self.results.get('sql_statistics', {})
-#             },
-#             'xss': {
-#                 'total_found': len(xss_vulnerabilities),
-#                 'vulnerabilities': xss_vulnerabilities,
-#                 'dom_xss_found': len(dom_xss_vulnerabilities),
-#                 'dom_xss_vulnerabilities': dom_xss_vulnerabilities
-#             },
-#             'scan_details': {
-#                 'scanned_urls': all_urls,
-#                 'request_statistics': self.results.get('statistics', {}),
-#                 'configuration_used': {
-#                     'sql_config_file': 'sql_injection.json',
-#                     'time_based_threshold': self.sql_thresholds['time_based_threshold'],
-#                     'xss_payloads_count': len(self.xss_payloads)
-#                 }
-#             }
-#         }
-        
-#         # 按漏洞类型分类
-#         vulnerability_types = {}
-#         for vuln in sql_vulnerabilities + xss_vulnerabilities + dom_xss_vulnerabilities:
-#             vuln_type = vuln.get('type', 'Unknown')
-#             if vuln_type not in vulnerability_types:
-#                 vulnerability_types[vuln_type] = []
-#             vulnerability_types[vuln_type].append(vuln)
-        
-#         report['vulnerability_types'] = vulnerability_types
-        
-#         # 按风险等级分类
-#         risk_levels = {
-#             'critical': [],
-#             'high': [],
-#             'medium': [],
-#             'low': [],
-#             'informational': []
-#         }
-        
-#         for vuln in sql_vulnerabilities + xss_vulnerabilities + dom_xss_vulnerabilities:
-#             confidence = vuln.get('confidence', '').lower()
-#             vuln_type = vuln.get('type', '')
-            
-#             # 根据漏洞类型和置信度确定风险等级
-#             if 'sql' in vuln_type.lower():
-#                 if 'high' in confidence or confidence == '高':
-#                     risk_levels['critical'].append(vuln)
-#                 elif 'medium' in confidence or confidence == '中':
-#                     risk_levels['high'].append(vuln)
-#                 else:
-#                     risk_levels['medium'].append(vuln)
-#             elif 'xss' in vuln_type.lower():
-#                 if 'high' in confidence or confidence == '高':
-#                     risk_levels['high'].append(vuln)
-#                 elif 'medium' in confidence or confidence == '中':
-#                     risk_levels['medium'].append(vuln)
-#                 else:
-#                     risk_levels['low'].append(vuln)
-#             else:
-#                 risk_levels['informational'].append(vuln)
-        
-#         report['risk_levels'] = risk_levels
-        
-#         return report
-
-#     # ==================== 报告生成 ====================
-#     def generate_report(self, report_data=None, filename=None, format='json'):
-#         """生成检测报告"""
-#         if report_data is None:
-#             # 如果没有提供报告数据，使用扫描器结果
-#             report_data = self._generate_comprehensive_report(
-#                 all_urls=[],
-#                 sql_vulnerabilities=[],
-#                 xss_vulnerabilities=[],
-#                 dom_xss_vulnerabilities=[],
-#                 scan_time=0
-#             )
-        
-#         timestamp = time.strftime("%Y%m%d_%H%M%S")
-#         if not filename:
-#             filename = f"web_security_scan_report_{timestamp}.{format}"
-        
-#         try:
-#             if format.lower() == 'json':
-#                 with open(filename, 'w', encoding='utf-8') as f:
-#                     json.dump(report_data, f, indent=2, ensure_ascii=False)
-#                 print(f"✅ JSON报告已保存到: {filename}")
-                
-#             elif format.lower() == 'txt':
-#                 with open(filename, 'w', encoding='utf-8') as f:
-#                     f.write(self._format_text_report(report_data))
-#                 print(f"✅ 文本报告已保存到: {filename}")
-                
-#             elif format.lower() == 'html':
-#                 html_content = self._format_html_report(report_data)
-#                 with open(filename, 'w', encoding='utf-8') as f:
-#                     f.write(html_content)
-#                 print(f"✅ HTML报告已保存到: {filename}")
-                
-#             else:
-#                 print(f"❌ 不支持的格式: {format}")
-#                 return None
-            
-#             return filename
-            
-#         except Exception as e:
-#             print(f"❌ 保存报告失败: {e}")
-#             return None
-
-#     def _format_text_report(self, report_data):
-#         """格式化文本报告"""
-#         lines = []
-#         lines.append("=" * 80)
-#         lines.append("WEB安全扫描报告")
-#         lines.append("=" * 80)
-        
-#         # 扫描摘要
-#         summary = report_data.get('scan_summary', {})
-#         lines.append(f"\n扫描摘要:")
-#         lines.append(f"  扫描时间: {summary.get('scan_timestamp', 'N/A')}")
-#         lines.append(f"  扫描URL数量: {summary.get('total_urls_scanned', 0)}")
-#         lines.append(f"  发现漏洞总数: {summary.get('total_vulnerabilities', 0)}")
-#         lines.append(f"  扫描耗时: {summary.get('scan_duration_seconds', 0)}秒")
-        
-#         # SQL注入漏洞
-#         sql_data = report_data.get('sql_injection', {})
-#         lines.append(f"\nSQL注入漏洞 ({sql_data.get('total_found', 0)}个):")
-#         for i, vuln in enumerate(sql_data.get('vulnerabilities', []), 1):
-#             lines.append(f"\n  {i}. {vuln.get('type', 'Unknown')}")
-#             lines.append(f"     参数: {vuln.get('parameter', 'N/A')}")
-#             lines.append(f"     Payload: {vuln.get('payload', 'N/A')[:50]}...")
-#             lines.append(f"     置信度: {vuln.get('confidence', 'N/A')}")
-#             lines.append(f"     数据库: {vuln.get('database', 'N/A')}")
-        
-#         # XSS漏洞
-#         xss_data = report_data.get('xss', {})
-#         lines.append(f"\nXSS漏洞 ({xss_data.get('total_found', 0)}个):")
-#         for i, vuln in enumerate(xss_data.get('vulnerabilities', []), 1):
-#             lines.append(f"\n  {i}. {vuln.get('type', 'Unknown')}")
-#             lines.append(f"     参数: {vuln.get('parameter', 'N/A')}")
-#             lines.append(f"     Payload: {vuln.get('payload', 'N/A')[:50]}...")
-#             lines.append(f"     置信度: {vuln.get('confidence', 'N/A')}")
-        
-#         # DOM XSS漏洞
-#         dom_xss_count = xss_data.get('dom_xss_found', 0)
-#         lines.append(f"\nDOM型XSS漏洞 ({dom_xss_count}个):")
-#         for i, vuln in enumerate(xss_data.get('dom_xss_vulnerabilities', []), 1):
-#             lines.append(f"\n  {i}. {vuln.get('type', 'Unknown')}")
-#             lines.append(f"     Payload: {vuln.get('payload', 'N/A')}")
-#             lines.append(f"     置信度: {vuln.get('confidence', 'N/A')}")
-        
-#         # 风险等级统计
-#         risk_levels = report_data.get('risk_levels', {})
-#         lines.append(f"\n风险等级统计:")
-#         for level, vulns in risk_levels.items():
-#             if vulns:
-#                 lines.append(f"  {level.upper()}: {len(vulns)}个")
-        
-#         lines.append("\n" + "=" * 80)
-#         lines.append("报告生成完成")
-#         lines.append("=" * 80)
-        
-#         return "\n".join(lines)
-
-#     def _format_html_report(self, report_data):
-#         """格式化HTML报告"""
-#         html = '''<!DOCTYPE html>
-# <html lang="zh-CN">
-# <head>
-#     <meta charset="UTF-8">
-#     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-#     <title>Web安全扫描报告</title>
-#     <style>
-#         body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
-#         .container { max-width: 1200px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-#         .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }
-#         .section { margin-bottom: 30px; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
-#         .section-title { font-size: 1.5em; font-weight: bold; margin-bottom: 15px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-#         .vulnerability { background-color: #f9f9f9; padding: 15px; margin-bottom: 15px; border-left: 4px solid #e74c3c; border-radius: 3px; }
-#         .vuln-title { font-weight: bold; color: #e74c3c; margin-bottom: 10px; }
-#         .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
-#         .stat-box { background-color: #3498db; color: white; padding: 15px; border-radius: 5px; text-align: center; }
-#         .stat-value { font-size: 2em; font-weight: bold; }
-#         .stat-label { font-size: 0.9em; opacity: 0.9; }
-#         .risk-high { border-left-color: #e74c3c; }
-#         .risk-medium { border-left-color: #f39c12; }
-#         .risk-low { border-left-color: #f1c40f; }
-#         .risk-info { border-left-color: #3498db; }
-#         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-#         th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
-#         th { background-color: #f2f2f2; }
-#     </style>
-# </head>
-# <body>
-#     <div class="container">
-#         <div class="header">
-#             <h1>Web安全扫描报告</h1>
-#             <p>生成时间: ''' + report_data.get('scan_summary', {}).get('scan_timestamp', 'N/A') + '''</p>
-#         </div>
-        
-#         <div class="stats">
-#             <div class="stat-box">
-#                 <div class="stat-value">''' + str(report_data.get('scan_summary', {}).get('total_urls_scanned', 0)) + '''</div>
-#                 <div class="stat-label">扫描URL数量</div>
-#             </div>
-#             <div class="stat-box">
-#                 <div class="stat-value">''' + str(report_data.get('scan_summary', {}).get('total_vulnerabilities', 0)) + '''</div>
-#                 <div class="stat-label">发现漏洞总数</div>
-#             </div>
-#             <div class="stat-box">
-#                 <div class="stat-value">''' + str(report_data.get('sql_injection', {}).get('total_found', 0)) + '''</div>
-#                 <div class="stat-label">SQL注入漏洞</div>
-#             </div>
-#             <div class="stat-box">
-#                 <div class="stat-value">''' + str(report_data.get('xss', {}).get('total_found', 0)) + '''</div>
-#                 <div class="stat-label">XSS漏洞</div>
-#             </div>
-#         </div>
-        
-#         <div class="section">
-#             <div class="section-title">扫描摘要</div>
-#             <table>
-#                 <tr><th>项目</th><th>值</th></tr>
-#                 <tr><td>扫描时间</td><td>''' + report_data.get('scan_summary', {}).get('scan_timestamp', 'N/A') + '''</td></tr>
-#                 <tr><td>扫描URL数量</td><td>''' + str(report_data.get('scan_summary', {}).get('total_urls_scanned', 0)) + '''</td></tr>
-#                 <tr><td>发现漏洞总数</td><td>''' + str(report_data.get('scan_summary', {}).get('total_vulnerabilities', 0)) + '''</td></tr>
-#                 <tr><td>扫描耗时</td><td>''' + str(report_data.get('scan_summary', {}).get('scan_duration_seconds', 0)) + '''秒</td></tr>
-#             </table>
-#         </div>'''
-        
-#         # SQL注入部分
-#         sql_data = report_data.get('sql_injection', {})
-#         if sql_data.get('vulnerabilities'):
-#             html += '''
-#         <div class="section">
-#             <div class="section-title">SQL注入漏洞 (''' + str(sql_data.get('total_found', 0)) + '''个)</div>'''
-            
-#             for i, vuln in enumerate(sql_data.get('vulnerabilities', []), 1):
-#                 risk_class = "risk-high" if "high" in str(vuln.get('confidence', '')).lower() or vuln.get('confidence') == "高" else "risk-medium"
-#                 html += '''
-#             <div class="vulnerability ''' + risk_class + '''">
-#                 <div class="vuln-title">''' + str(i) + '. ' + vuln.get('type', 'Unknown') + '''</div>
-#                 <p><strong>参数:</strong> ''' + vuln.get('parameter', 'N/A') + '''</p>
-#                 <p><strong>Payload:</strong> <code>''' + vuln.get('payload', 'N/A')[:100] + '''</code></p>
-#                 <p><strong>置信度:</strong> ''' + vuln.get('confidence', 'N/A') + '''</p>
-#                 <p><strong>数据库:</strong> ''' + vuln.get('database', 'N/A') + '''</p>
-#             </div>'''
-            
-#             html += '''
-#         </div>'''
-        
-#         # XSS部分
-#         xss_data = report_data.get('xss', {})
-#         if xss_data.get('vulnerabilities'):
-#             html += '''
-#         <div class="section">
-#             <div class="section-title">XSS漏洞 (''' + str(xss_data.get('total_found', 0)) + '''个)</div>'''
-            
-#             for i, vuln in enumerate(xss_data.get('vulnerabilities', []), 1):
-#                 confidence = vuln.get('confidence', '')
-#                 if confidence == "高":
-#                     risk_class = "risk-high"
-#                 elif confidence == "中":
-#                     risk_class = "risk-medium"
-#                 else:
-#                     risk_class = "risk-low"
-                    
-#                 html += '''
-#             <div class="vulnerability ''' + risk_class + '''">
-#                 <div class="vuln-title">''' + str(i) + '. ' + vuln.get('type', 'Unknown') + '''</div>
-#                 <p><strong>参数:</strong> ''' + vuln.get('parameter', 'N/A') + '''</p>
-#                 <p><strong>Payload:</strong> <code>''' + vuln.get('payload', 'N/A')[:100] + '''</code></p>
-#                 <p><strong>置信度:</strong> ''' + vuln.get('confidence', 'N/A') + '''</p>
-#                 <p><strong>详情:</strong> ''' + vuln.get('details', 'N/A') + '''</p>
-#             </div>'''
-            
-#             html += '''
-#         </div>'''
-        
-#         # DOM XSS部分
-#         dom_xss_vulns = xss_data.get('dom_xss_vulnerabilities', [])
-#         if dom_xss_vulns:
-#             html += '''
-#         <div class="section">
-#             <div class="section-title">DOM型XSS漏洞 (''' + str(len(dom_xss_vulns)) + '''个)</div>'''
-            
-#             for i, vuln in enumerate(dom_xss_vulns, 1):
-#                 html += '''
-#             <div class="vulnerability risk-info">
-#                 <div class="vuln-title">''' + str(i) + '. ' + vuln.get('type', 'Unknown') + '''</div>
-#                 <p><strong>Payload:</strong> <code>''' + vuln.get('payload', 'N/A') + '''</code></p>
-#                 <p><strong>置信度:</strong> ''' + vuln.get('confidence', 'N/A') + '''</p>
-#                 <p><strong>详情:</strong> ''' + vuln.get('details', 'N/A') + '''</p>
-#             </div>'''
-            
-#             html += '''
-#         </div>'''
-        
-#         # 风险等级统计
-#         risk_levels = report_data.get('risk_levels', {})
-#         if any(risk_levels.values()):
-#             html += '''
-#         <div class="section">
-#             <div class="section-title">风险等级统计</div>
-#             <table>
-#                 <tr><th>风险等级</th><th>数量</th></tr>'''
-            
-#             for level, vulns in risk_levels.items():
-#                 if vulns:
-#                     html += '''
-#                 <tr><td>''' + level.upper() + '''</td><td>''' + str(len(vulns)) + '''</td></tr>'''
-            
-#             html += '''
-#             </table>
-#         </div>'''
-        
-#         html += '''
-#         <div class="section">
-#             <div class="section-title">报告信息</div>
-#             <p>本报告由AdvancedWebScanner自动生成。</p>
-#             <p>扫描配置: SQL注入配置文件 - sql_injection.json</p>
-#             <p>XSS Payload数量: ''' + str(len(self.xss_payloads)) + '''</p>
-#             <p>时间盲注阈值: ''' + str(self.sql_thresholds['time_based_threshold']) + '''秒</p>
-#         </div>
-#     </div>
-# </body>
-# </html>'''
-        
-#         return html
-
-#     # ==================== 工具方法 ====================
-#     def get_payload_statistics(self):
-#         """获取payload统计信息"""
-#         stats = {
-#             "total_xss_payloads": len(self.xss_payloads),
-#             "sql_payloads_by_type": {k: len(v) for k, v in self.sql_payloads.items()},
-#             "sql_error_indicators": sum(len(v) for v in self.sql_config.get("error_indicators", {}).values()),
-#             "time_based_threshold": self.sql_thresholds['time_based_threshold']
-#         }
-#         return stats
-
-#     def reset_results(self):
-#         """重置扫描结果"""
-#         self.results = {
-#             "requests": [],
-#             "responses": [],
-#             "statistics": {},
-#             'vulnerabilities': [],
-#             'sql_statistics': {
-#                 "total_tested": 0,
-#                 "vulnerable_urls": 0,
-#                 "by_type": {},
-#                 "by_database": {},
-#                 "by_method": {}
-#             }
-#         }
-#         self.baseline_responses = {}
-#         print("✅ 扫描结果已重置")
-
-#     def save_state(self, filename=None):
-#         """保存扫描器状态"""
-#         if not filename:
-#             timestamp = time.strftime("%Y%m%d_%H%M%S")
-#             filename = f"scanner_state_{timestamp}.json"
-        
-#         state = {
-#             'results': self.results,
-#             'baseline_responses': self.baseline_responses,
-#             'sql_thresholds': self.sql_thresholds,
-#             'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
-#         }
-        
-#         try:
-#             with open(filename, 'w', encoding='utf-8') as f:
-#                 json.dump(state, f, indent=2, ensure_ascii=False)
-#             print(f"✅ 状态已保存到: {filename}")
-#             return filename
-#         except Exception as e:
-#             print(f"❌ 保存状态失败: {e}")
-#             return None
-
-#     def load_state(self, filename):
-#         """加载扫描器状态"""
-#         try:
-#             with open(filename, 'r', encoding='utf-8') as f:
-#                 state = json.load(f)
-            
-#             self.results = state.get('results', self.results)
-#             self.baseline_responses = state.get('baseline_responses', {})
-#             print(f"✅ 状态已从 {filename} 加载")
-#             return True
-#         except Exception as e:
-#             print(f"❌ 加载状态失败: {e}")
-#             return False

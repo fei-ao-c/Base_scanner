@@ -145,7 +145,7 @@ class LogViewer:
                     if key in log_entry and log_entry[key]:
                         print(f"{Fore.CYAN}  {key}: {log_entry[key]}")
                 
-                print()
+                #print()
                 displayed += 1
                 
             except json.JSONDecodeError:

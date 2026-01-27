@@ -344,7 +344,7 @@ class VulnerabilityScanner:
             filename = f"scan_results_{safe_host_name}_{timestamp}.json"
             #filename = f"scan_results_{scan_host}_{timestamp}.json"
             os.makedirs("output", exist_ok=True)
-            print(f"[++++++]DEBUG,{self.results}")
+            #print(f"[++++++]DEBUG,{self.results}")
             save_results(self.results, filename, "output", self.type)
 
             # 6. 显示摘要
@@ -561,6 +561,7 @@ def main():
     parser.add_argument("--log-level",help="日志级别",choices=['DEBUG','INFO','WARNING','ERROR'],default="INFO")#现在不可指定
     parser.add_argument("--no-log",help="禁用日志",action="store_true")
     parser.add_argument("--view-log",help="查看日志",metavar="FILE")
+    parser.add_argument("--cookie",help="设置cookie")
     parser.add_argument("--analyze-logs",help="分析日志",action="store_true")
     parser.add_argument("-rps", "--requests-per-second", type=int, default=20,help="每秒最大请求数")
     parser.add_argument("-rpm", "--requests-per-minute", type=int, default=200,help="每分钟最大请求数")
@@ -578,6 +579,7 @@ def main():
     #下面的要进行测试-----------------------------------------------------
     # 创建配置
     config = {
+        "cookies": args.cookie,
         "max_requests_per_second": args.requests_per_second,
         "max_requests_per_minute": args.requests_per_minute,
         "max_concurrent_requests": args.concurrent,
