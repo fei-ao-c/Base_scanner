@@ -322,54 +322,56 @@ class sampilescanner:
     #         return None
 
 
-    def parse_cookies(self,cookies_str):
+    def parse_cookies(self,cookies_input):
         """
         将cookies字符串转换为字典
         支持格式：
         1. "name1=value1; name2=value2" (分号分隔)
         2. JSON格式: '{"name1": "value1", "name2": "value2"}'
         3. 已经是字典则直接返回
+        将多种格式的Cookie输入转换为字典。
+        支持：字典、字符串（分号分隔）、JSON字符串。
         """
-        if not cookies_str:
+        if not cookies_input:
             return {}
 
-        # 如果已经是字典，直接返回
-        if isinstance(cookies_str, dict):
-            return cookies_str
+        # 1. 如果已经是字典，直接返回
+        if isinstance(cookies_input, dict):
+            return cookies_input.copy()  # 返回副本避免意外修改
 
-        # 如果是字符串
-        if isinstance(cookies_str, str):
-            # 尝试去除前后空格
-            cookies_str = cookies_str.strip()
-
-            # 情况1：尝试解析为JSON（通常以{开头）
-            if cookies_str.startswith('{') and cookies_str.endswith('}'):
+        # 2. 如果是字符串
+        if isinstance(cookies_input, str):
+            cookies_input = cookies_input.strip()
+            # 2.1 尝试解析为JSON（以{开头}）
+            if cookies_input.startswith('{') and cookies_input.endswith('}'):
                 try:
-                    return json.loads(cookies_str)
+                    return json.loads(cookies_input)
                 except json.JSONDecodeError:
-                    # 如果不是合法JSON，继续尝试其他格式
-                    pass
+                    pass  # 不是合法JSON，继续按字符串解析
                 
-            # 情况2：分号分隔格式（常见于浏览器复制或HTTP头）
+            # 2.2 按分号分割的键值对解析
             cookies_dict = {}
-            # 先按分号分割
-            pairs = cookies_str.split(';')
+            # 处理可能存在的'Cookie:'前缀
+            if cookies_input.lower().startswith('cookie:'):
+                cookies_input = cookies_input[7:].strip()
+
+            pairs = cookies_input.split(';')
             for pair in pairs:
                 pair = pair.strip()
-                if not pair:
+                if not pair:  # 跳过空字符串
                     continue
-                # 按等号分割，最多分割一次（因为值中可能包含等号）
+                # 关键：使用 split('=', 1)，只分割第一个等号，确保值中的等号不被分割
                 if '=' in pair:
                     key, value = pair.split('=', 1)
                     cookies_dict[key.strip()] = value.strip()
                 else:
-                    # 如果没有等号，可能是只有key没有value的情况
-                    # 根据需求，可以忽略或作为空值处理
+                    # 对于没有等号的情况（虽然不符合标准，但有时会出现），将整个字符串作为键，值为空
                     cookies_dict[pair] = ''
 
             return cookies_dict
-
-        # 其他类型，返回空字典或抛出异常
+    
+        # 3. 其他不支持的类型（如列表、元组）
+        # 可以根据需要扩展，例如处理 [("name", "value")] 格式
         return {}
 
     def send_controlled_request(self, request_info):
