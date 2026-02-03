@@ -16,6 +16,7 @@ try:
     from modules.response_parse import ResponseParse
     from port_scanner import PortScanner
     from web_scanner import sampilescanner
+    from commod_code import CommandCodeScanner
     from utils import load_config, save_results, print_colored
 except ImportError as e:
     print(f"导入模块时出错: {e}")
@@ -161,7 +162,8 @@ class VulnerabilityScanner:
         start_time=time.time()
 
         try:
-            scanner=sampilescanner(self.config)
+            scanner=sampilescanner(self.config)#sql和xss扫描器
+            cc_scanner=CommandCodeScanner(self.config)#命令注入和代码执行扫描器
             vulnerabilities=[]
 
             # sql注入检测 【在这里添加输入框选择功能，可选择POST或GET】
@@ -183,19 +185,30 @@ class VulnerabilityScanner:
                     vuln.get('confidence','未知'),
                     vuln.get('payload')
                 )
-            
-            
-#后续要进一步挖掘
 
             # XSS检测
             self.logger.main_logger.info(f"开始XSS检测: {url}")
             #两个函数，多一个dom—xss扫描
-            xss_vulns_dom,scan_results_dom=scanner.check_dom_xss(url)
             xss_vulns_fc,scan_results_fc=scanner.check_xss(url)
+            xss_vulns_dom,scan_results_dom=scanner.check_dom_xss(url)
             xss_vulns=xss_vulns_dom+xss_vulns_fc
             scan_results=scan_results_dom | scan_results_fc
             self.results={**self.results,**scan_results}
             for vuln in xss_vulns:
+                vuln['url']=url
+                vulnerabilities.append(vuln)
+                # self.logger.log_vulnerability_found(
+                #     url,
+                #     vuln['type'],
+                #     vuln.get('confidence','未知'),
+                #     vuln.get('payload')
+                # )
+
+            #命令注入和代码执行检测
+            self.logger.main_logger.info(f"开始命令注入和代码执行检测: {url}")
+            cc_vulns,scan_results_cc=cc_scanner.scan_all_vulnerabilities(url)
+            self.results={**self.results,**scan_results_cc}
+            for vuln in cc_vulns:
                 vuln['url']=url
                 vulnerabilities.append(vuln)
                 self.logger.log_vulnerability_found(
@@ -206,7 +219,7 @@ class VulnerabilityScanner:
                 )
             
            # vulnerabilities.extend(xss_vulns)
-
+            #爬取链接并扫描
             if self.config.get("crawl_depth",0)>0:
                 links=scanner.crawl_links(url)[:5]  # 限制爬取链接数量以节省时间
                 print(f"爬取到 {len(links)} 个链接，分别是{links}，开始扫描...")
@@ -520,8 +533,8 @@ class VulnerabilityScanner:
 
             if summary:
                 print(f"\n详细统计:")
-                print(f"- 高风险漏洞: {summary.get('high_risk_vulns', 0)} 个")
-                print(f"- 中风险漏洞: {summary.get('medium_risk_vulns', 0)} 个")
+                print_colored(f"- 中风险漏洞: {summary.get('medium_risk_vulns', 0)} 个","yellow")
+                print_colored(f"- 高风险漏洞: {summary.get('high_risk_vulns', 0)} 个","red")
                 # print(f"- 总扫描端口: {summary.get('total_ports', 0)} 个")
         except Exception as e:
             print(f"[-] 显示摘要时出错: {e}")
@@ -564,7 +577,7 @@ def main():
     parser.add_argument("--cookie",help="设置cookie")
     parser.add_argument("--analyze-logs",help="分析日志",action="store_true")
     parser.add_argument("-rps", "--requests-per-second", type=int, default=20,help="每秒最大请求数")
-    parser.add_argument("-rpm", "--requests-per-minute", type=int, default=200,help="每分钟最大请求数")
+    parser.add_argument("-rpm", "--requests-per-minute", type=int, default=600,help="每分钟最大请求数")
     #下面的要进行测试判断----------------------------------------------------------
     parser.add_argument("-c", "--concurrent", type=int, default=5,help="最大并发请求数")
     parser.add_argument("-t", "--timeout", type=int, default=10,help="请求超时时间(秒)")

@@ -47,7 +47,7 @@ def load_config(choice=None):
         "max_concurrent_requests": 3,  # 最大并发请求数
         "max_queue_size": 50,  # 请求队列大小
         "max_requests_per_second": 10,  # 每秒最大请求数
-        "max_requests_per_minute": 200,  # 每分钟最大请求数
+        "max_requests_per_minute": 600,  # 每分钟最大请求数
         "proxies": None  # 不使用代理
     }
 
@@ -509,26 +509,47 @@ def format_results_for_display(results):
                     output.append(f"     载荷: {payload}")
                 output.append(f"     地址: {url}")
         
-        # 显示中风险漏洞
+        # 显示中风险漏洞（与高风险格式一致）
         if medium_risk:
             output.append("\n🟡 中风险漏洞:")
             for i, vuln in enumerate(medium_risk, 1):
                 vuln_type = vuln.get('type', '未知漏洞')
+                url = vuln.get('tested_url', vuln.get('url', vuln.get('target', 'N/A')))
                 output.append(f"  {i}. {vuln_type}")
+                if vuln.get('payload'):
+                    payload = str(vuln['payload'])
+                    if len(payload) > 60:
+                        payload = payload[:57] + "..."
+                    output.append(f"     载荷: {payload}")
+                output.append(f"     地址: {url}")
         
-        # 显示低风险漏洞
+        # 显示低风险漏洞（与高风险格式一致）
         if low_risk:
             output.append("\n🟢 低风险漏洞:")
             for i, vuln in enumerate(low_risk, 1):
                 vuln_type = vuln.get('type', '未知漏洞')
+                url = vuln.get('tested_url', vuln.get('url', vuln.get('target', 'N/A')))
                 output.append(f"  {i}. {vuln_type}")
+                if vuln.get('payload'):
+                    payload = str(vuln['payload'])
+                    if len(payload) > 60:
+                        payload = payload[:57] + "..."
+                    output.append(f"     载荷: {payload}")
+                output.append(f"     地址: {url}")
         
-        # 显示未知风险漏洞
+        # 显示未知风险漏洞（与高风险格式一致）
         if unknown_risk:
             output.append("\n⚪ 未知风险漏洞:")
             for i, vuln in enumerate(unknown_risk, 1):
                 vuln_type = vuln.get('type', '未知漏洞')
+                url = vuln.get('tested_url', vuln.get('url', vuln.get('target', 'N/A')))
                 output.append(f"  {i}. {vuln_type}")
+                if vuln.get('payload'):
+                    payload = str(vuln['payload'])
+                    if len(payload) > 60:
+                        payload = payload[:57] + "..."
+                    output.append(f"     载荷: {payload}")
+                output.append(f"     地址: {url}")
     else:
         output.append("✅ 未发现安全漏洞")
     

@@ -19,7 +19,7 @@ try:
     from modules.request_sender import RequestSender
     from modules.request_builder import RequestBuilder
     from modules.response_parse import ResponseParse
-    from utils import load_config, load_command_config, load_code_exec_config
+    from utils import load_config, load_command_config, load_code_exec_config, print_colored
     
     print("✅ CommandCodeScanner 所有模块导入成功")
 except ImportError as e:
@@ -83,7 +83,7 @@ class CommandCodeScanner:
         # 初始化速率限制器
         self.rate_limiter = RateLimiter(
             max_requests_per_second=self.config.get("max_requests_per_second", 20),
-            max_requests_per_minute=self.config.get("max_requests_per_minute", 200)
+            max_requests_per_minute=self.config.get("max_requests_per_minute", 600)
         )
         
         # 初始化请求队列（降低并发避免堆积）
@@ -962,7 +962,7 @@ class CommandCodeScanner:
                 start_time = time.time()
                 
                 response = self._send_command_test(url, param_name, test_value, method, post_data,
-                                                  timeout=self.time_delay_threshold + 5)
+                                                  timeout=self.time_delay_threshold + 5)#time_delay_threshold是时间阈值
                 
                 elapsed_time = time.time() - start_time
                 
@@ -970,9 +970,9 @@ class CommandCodeScanner:
                     no_delay_value = f"{param_value}{separator} echo test"
                     no_delay_time = self._measure_response_time(
                         url, param_name, no_delay_value, method, post_data
-                    )
+                    )#测量不带延迟payload的响应时间
                     
-                    if elapsed_time > no_delay_time * 3:
+                    if elapsed_time > no_delay_time * 3:#延迟时间大于正常时间3倍
                         vulnerabilities.append({
                             'type': 'Command Injection (Time-Based)',
                             'payload': payload,
@@ -1992,9 +1992,9 @@ class CommandCodeScanner:
         """
         扫描所有漏洞类型（命令执行 + 代码执行）
         """
-        print(f"\n{'='*60}")
-        print(f"开始全面漏洞扫描: {url}")
-        print(f"{'='*60}")
+        print_colored(f"\n{'='*60}","yellow")
+        print_colored(f"\n🔍 开始全面的命令注入和代码执行漏洞扫描: {url}","red")
+        print_colored(f"\n{'='*60}","yellow")
         
         all_vulnerabilities = []
         

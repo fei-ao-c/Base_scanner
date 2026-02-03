@@ -13,8 +13,8 @@ class ReportGenerator:
         """生成HTML报告 - 修复版"""
         try:
             # 打印调试信息
-            print(f"DEBUG: 开始生成报告...")
-            print(f"DEBUG: report_data keys: {list(report_data.keys())}")
+            # print(f"DEBUG: 开始生成报告...")
+            # print(f"DEBUG: report_data keys: {list(report_data.keys())}")
             
             # 获取基本信息
             target = report_data.get('target', '未知目标')
@@ -30,6 +30,8 @@ class ReportGenerator:
             # 分类漏洞
             sql_vulnerabilities = []
             xss_vulnerabilities = []
+            command_vulnerabilities = []
+            code_vulnerabilities = []
             other_vulnerabilities = []
             
             for vuln in vulnerabilities:
@@ -40,12 +42,23 @@ class ReportGenerator:
                 elif 'xss' in vuln_type:
                     vuln['source'] = 'xss'
                     xss_vulnerabilities.append(vuln)
+                elif 'command injection' in vuln_type or '命令注入' in vuln_type.lower():
+                    vuln['source'] = 'command_injection'
+                    command_vulnerabilities.append(vuln)
+                elif 'code injection' in vuln_type or '代码注入' in vuln_type.lower():
+                    vuln['source'] = 'code_injection'
+                    code_vulnerabilities.append(vuln)
+                elif 'template injection' in vuln_type or '文件包含' in vuln_type.lower():
+                    vuln['source'] = 'code_injection'
+                    code_vulnerabilities.append(vuln)
                 else:
                     vuln['source'] = 'other'
                     other_vulnerabilities.append(vuln)
             
             print(f"DEBUG: SQL注入漏洞: {len(sql_vulnerabilities)} 个")
             print(f"DEBUG: XSS漏洞: {len(xss_vulnerabilities)} 个")
+            print(f"DEBUG: 命令注入漏洞: {len(command_vulnerabilities)} 个")
+            print(f"DEBUG: 代码执行漏洞: {len(code_vulnerabilities)} 个")
             print(f"DEBUG: 其他漏洞: {len(other_vulnerabilities)} 个")
             
             # 获取开放端口
@@ -55,7 +68,7 @@ class ReportGenerator:
             http_responses = report_data.get('http_responses', report_data.get('response', []))
             
             # 计算URL数量
-            total_urls_scanned = 0
+            total_urls_scanned = 1
             if http_responses:
                 unique_urls = set()
                 for resp in http_responses:
@@ -76,6 +89,12 @@ class ReportGenerator:
             
             # XSS总数
             xss_total = len(xss_vulnerabilities)
+            
+            # 命令注入总数
+            command_total = len(command_vulnerabilities)
+            
+            # 代码执行总数
+            code_total = len(code_vulnerabilities)
             
             # 构建HTML内容
             html_content = '''<!DOCTYPE html>
@@ -242,6 +261,9 @@ class ReportGenerator:
         .risk-info { border-left-color: #17a2b8; }
         .risk-info .vuln-badge { background-color: #17a2b8; }
         
+        .risk-critical { border-left-color: #9c27b0; }
+        .risk-critical .vuln-badge { background-color: #9c27b0; }
+        
         table { 
             width: 100%;
             border-collapse: collapse;
@@ -338,6 +360,7 @@ class ReportGenerator:
         .tag-warning { background-color: #fff3cd; color: #856404; }
         .tag-danger { background-color: #f8d7da; color: #721c24; }
         .tag-info { background-color: #d1ecf1; color: #0c5460; }
+        .tag-critical { background-color: #9c27b0; color: #ffffff; }
         
         .accordion {
             margin-top: 15px;
@@ -390,6 +413,47 @@ class ReportGenerator:
             font-size: 0.9em;
         }
         
+        .vuln-details-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .vuln-detail-item {
+            margin-bottom: 8px;
+        }
+        
+        .vuln-detail-label {
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        .vuln-detail-value {
+            color: #6c757d;
+            word-break: break-all;
+        }
+        
+        .os-badge {
+            display: inline-block;
+            background-color: #17a2b8;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            margin-left: 8px;
+        }
+        
+        .language-badge {
+            display: inline-block;
+            background-color: #6f42c1;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            margin-left: 8px;
+        }
+        
         @media (max-width: 768px) {
             .container {
                 padding: 15px;
@@ -410,6 +474,10 @@ class ReportGenerator:
             }
             
             .info-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .vuln-details-grid {
                 grid-template-columns: 1fr;
             }
         }
@@ -441,6 +509,18 @@ class ReportGenerator:
             });
             document.getElementById('show-all-btn').style.display = 'none';
         }
+        
+        function toggleDetails(id) {
+            const details = document.getElementById(`details-${id}`);
+            const btn = document.getElementById(`toggle-btn-${id}`);
+            if (details.style.display === "none" || details.style.display === "") {
+                details.style.display = "block";
+                btn.innerHTML = '<i class="fas fa-chevron-up"></i> 隐藏详情';
+            } else {
+                details.style.display = "none";
+                btn.innerHTML = '<i class="fas fa-chevron-down"></i> 显示详情';
+            }
+        }
     </script>
 </head>
 <body>
@@ -468,6 +548,14 @@ class ReportGenerator:
                 <div class="stat-value">''' + str(xss_total) + '''</div>
                 <div class="stat-label"><i class="fas fa-code"></i> XSS漏洞</div>
             </div>
+            <div class="stat-box">
+                <div class="stat-value">''' + str(command_total) + '''</div>
+                <div class="stat-label"><i class="fas fa-terminal"></i> 命令注入漏洞</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value">''' + str(code_total) + '''</div>
+                <div class="stat-label"><i class="fas fa-file-code"></i> 代码执行漏洞</div>
+            </div>
         </div>
         
         <!-- 扫描摘要 -->
@@ -485,10 +573,6 @@ class ReportGenerator:
                     <div class="summary-item">
                         <span class="summary-label">扫描时间:</span>
                         <span class="summary-value">''' + html_module.escape(str(scan_time)) + '''</span>
-                    </div>
-                    <div class="summary-item">
-                        <span class="summary-label">扫描耗时:</span>
-                        <span class="summary-value">0 秒</span>
                     </div>
                     <div class="summary-item">
                         <span class="summary-label">扫描URL数量:</span>
@@ -509,6 +593,14 @@ class ReportGenerator:
                     <div class="summary-item">
                         <span class="summary-label">XSS漏洞:</span>
                         <span class="summary-value">''' + str(xss_total) + '''</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">命令注入漏洞:</span>
+                        <span class="summary-value">''' + str(command_total) + '''</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">代码执行漏洞:</span>
+                        <span class="summary-value">''' + str(code_total) + '''</span>
                     </div>
                 </div>
             </div>
@@ -566,6 +658,75 @@ class ReportGenerator:
                 <i class="fas fa-check-circle" style="font-size: 3em; color: #28a745;"></i><br>
                 未发现XSS漏洞
             </p>
+        </div>'''
+            
+            # 添加命令注入漏洞部分
+            if command_vulnerabilities:
+                html_content += '''
+        <!-- 命令注入漏洞 -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-terminal"></i> 命令注入漏洞 (''' + str(len(command_vulnerabilities)) + '''个)
+            </div>'''
+                
+                for i, vuln in enumerate(command_vulnerabilities, 1):
+                    html_content += ReportGenerator._generate_command_vulnerability_html(vuln, i)
+                
+                html_content += '''
+        </div>'''
+            else:
+                html_content += '''
+        <!-- 命令注入漏洞 -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-terminal"></i> 命令注入漏洞
+            </div>
+            <p style="text-align: center; color: #6c757d; padding: 20px;">
+                <i class="fas fa-check-circle" style="font-size: 3em; color: #28a745;"></i><br>
+                未发现命令注入漏洞
+            </p>
+        </div>'''
+            
+            # 添加代码执行漏洞部分
+            if code_vulnerabilities:
+                html_content += '''
+        <!-- 代码执行漏洞 -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-file-code"></i> 代码执行漏洞 (''' + str(len(code_vulnerabilities)) + '''个)
+            </div>'''
+                
+                for i, vuln in enumerate(code_vulnerabilities, 1):
+                    html_content += ReportGenerator._generate_code_vulnerability_html(vuln, i)
+                
+                html_content += '''
+        </div>'''
+            else:
+                html_content += '''
+        <!-- 代码执行漏洞 -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-file-code"></i> 代码执行漏洞
+            </div>
+            <p style="text-align: center; color: #6c757d; padding: 20px;">
+                <i class="fas fa-check-circle" style="font-size: 3em; color: #28a745;"></i><br>
+                未发现代码执行漏洞
+            </p>
+        </div>'''
+            
+            # 添加其他漏洞部分
+            if other_vulnerabilities:
+                html_content += '''
+        <!-- 其他漏洞 -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-exclamation-triangle"></i> 其他漏洞 (''' + str(len(other_vulnerabilities)) + '''个)
+            </div>'''
+                
+                for i, vuln in enumerate(other_vulnerabilities, 1):
+                    html_content += ReportGenerator._generate_vulnerability_html(vuln, i)
+                
+                html_content += '''
         </div>'''
             
             # 添加开放端口信息
@@ -670,7 +831,7 @@ pre {{ background-color: #f5c6cb; padding: 15px; border-radius: 5px; overflow: a
                 url_str = str(url)
             
             # 根据置信度设置风险等级
-            if confidence == "高" or confidence == "high":
+            if confidence == "高" or confidence == "high" or confidence == "critical":
                 risk_class = "risk-high"
                 risk_label = "高风险"
                 icon = "fas fa-exclamation-triangle"
@@ -705,23 +866,44 @@ pre {{ background-color: #f5c6cb; padding: 15px; border-radius: 5px; overflow: a
                     <span><i class="''' + vuln_icon + '''"></i> ''' + vuln_prefix + ''' #''' + str(index) + ''': ''' + html_module.escape(str(vuln_type)) + '''</span>
                     <span class="vuln-badge"><i class="''' + icon + '''"></i> ''' + risk_label + '''</span>
                 </div>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin-bottom: 15px;">
+                <div class="vuln-details-grid">
                     <div>
-                        <p><strong><i class="fas fa-tag"></i> 类型:</strong> ''' + html_module.escape(str(vuln_type)) + '''</p>
-                        <p><strong><i class="fas fa-code"></i> 参数:</strong> <code>''' + html_module.escape(str(parameter)) + '''</code></p>
-                        <p><strong><i class="fas fa-link"></i> URL:</strong> <code>''' + html_module.escape(str(url_str))[:100] + '''</code></p>
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-tag"></i> 类型:</span>
+                            <span class="vuln-detail-value">''' + html_module.escape(str(vuln_type)) + '''</span>
+                        </div>
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-code"></i> 参数:</span>
+                            <span class="vuln-detail-value"><code>''' + html_module.escape(str(parameter)) + '''</code></span>
+                        </div>
                     </div>
                     <div>
-                        <p><strong><i class="fas fa-shield-alt"></i> 置信度:</strong> ''' + html_module.escape(str(confidence)) + '''</p>'''
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-link"></i> URL:</span>
+                            <span class="vuln-detail-value"><code>''' + html_module.escape(str(url_str))[:100] + '''</code></span>
+                        </div>
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-shield-alt"></i> 置信度:</span>
+                            <span class="vuln-detail-value">''' + html_module.escape(str(confidence)) + '''</span>
+                        </div>
+                    </div>
+                </div>'''
             
             if evidence:
-                html += '''<p><strong><i class="fas fa-search"></i> 证据:</strong> ''' + html_module.escape(str(evidence)) + '''</p>'''
+                html += '''
+                <div class="vuln-detail-item">
+                    <span class="vuln-detail-label"><i class="fas fa-search"></i> 证据:</span>
+                    <span class="vuln-detail-value">''' + html_module.escape(str(evidence)) + '''</span>
+                </div>'''
             
             if details:
-                html += '''<p><strong><i class="fas fa-info-circle"></i> 详情:</strong> ''' + html_module.escape(str(details)) + '''</p>'''
+                html += '''
+                <div class="vuln-detail-item">
+                    <span class="vuln-detail-label"><i class="fas fa-info-circle"></i> 详情:</span>
+                    <span class="vuln-detail-value">''' + html_module.escape(str(details)) + '''</span>
+                </div>'''
             
-            html += '''</div>
-                </div>
+            html += '''
                 <div>
                     <p><strong><i class="fas fa-code"></i> Payload:</strong></p>
                     <div class="payload-code">''' + html_module.escape(str(payload)) + '''</div>
@@ -744,6 +926,257 @@ pre {{ background-color: #f5c6cb; padding: 15px; border-radius: 5px; overflow: a
                 <p>生成漏洞信息时发生错误: ''' + html_module.escape(str(e)) + '''</p>
             </div>'''
     
+    @staticmethod
+    def _generate_command_vulnerability_html(vuln, index):
+        """生成命令注入漏洞的HTML"""
+        try:
+            vuln_type = vuln.get('type', '命令注入')
+            parameter = vuln.get('parameter', 'N/A')
+            payload = vuln.get('payload', 'N/A')
+            confidence = vuln.get('confidence', '未知')
+            details = vuln.get('details', '')
+            evidence = vuln.get('evidence', '')
+            url = vuln.get('url', 'N/A')
+            os_type = vuln.get('os', '未知')
+            technique = vuln.get('technique', '')
+            separator = vuln.get('separator', '')
+            
+            # 处理URL字段
+            if isinstance(url, list):
+                url_str = url[0] if url else 'N/A'
+            else:
+                url_str = str(url)
+            
+            # 根据置信度设置风险等级
+            if confidence == "高" or confidence == "high" or confidence == "critical":
+                risk_class = "risk-critical"
+                risk_label = "严重"
+                icon = "fas fa-skull-crossbones"
+            elif confidence == "中" or confidence == "medium":
+                risk_class = "risk-high"
+                risk_label = "高风险"
+                icon = "fas fa-exclamation-triangle"
+            elif confidence == "低" or confidence == "low":
+                risk_class = "risk-medium"
+                risk_label = "中风险"
+                icon = "fas fa-exclamation-circle"
+            else:
+                risk_class = "risk-info"
+                risk_label = "未知风险"
+                icon = "fas fa-question-circle"
+            
+            # 操作系统徽章
+            os_badge = ''
+            if os_type and os_type != '未知':
+                os_badge = f'<span class="os-badge">{html_module.escape(str(os_type))}</span>'
+            
+            html = '''
+            <div class="vulnerability ''' + risk_class + '''">
+                <div class="vuln-title">
+                    <span><i class="fas fa-terminal"></i> 命令注入 #''' + str(index) + ''': ''' + html_module.escape(str(vuln_type)) + os_badge + '''</span>
+                    <span class="vuln-badge"><i class="''' + icon + '''"></i> ''' + risk_label + '''</span>
+                </div>
+                <div class="vuln-details-grid">
+                    <div>
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-tag"></i> 类型:</span>
+                            <span class="vuln-detail-value">''' + html_module.escape(str(vuln_type)) + '''</span>
+                        </div>
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-code"></i> 参数:</span>
+                            <span class="vuln-detail-value"><code>''' + html_module.escape(str(parameter)) + '''</code></span>
+                        </div>
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-desktop"></i> 操作系统:</span>
+                            <span class="vuln-detail-value">''' + html_module.escape(str(os_type)) + '''</span>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-link"></i> URL:</span>
+                            <span class="vuln-detail-value"><code>''' + html_module.escape(str(url_str))[:100] + '''</code></span>
+                        </div>
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-shield-alt"></i> 置信度:</span>
+                            <span class="vuln-detail-value">''' + html_module.escape(str(confidence)) + '''</span>
+                        </div>
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-wrench"></i> 注入技术:</span>
+                            <span class="vuln-detail-value">''' + html_module.escape(str(technique)) + '''</span>
+                        </div>
+                    </div>
+                </div>'''
+            
+            if separator:
+                html += '''
+                <div class="vuln-detail-item">
+                    <span class="vuln-detail-label"><i class="fas fa-slash"></i> 命令分隔符:</span>
+                    <span class="vuln-detail-value"><code>''' + html_module.escape(str(separator)) + '''</code></span>
+                </div>'''
+            
+            if evidence:
+                html += '''
+                <div class="vuln-detail-item">
+                    <span class="vuln-detail-label"><i class="fas fa-search"></i> 证据:</span>
+                    <span class="vuln-detail-value">''' + html_module.escape(str(evidence)) + '''</span>
+                </div>'''
+            
+            if details:
+                html += '''
+                <div class="vuln-detail-item">
+                    <span class="vuln-detail-label"><i class="fas fa-info-circle"></i> 详情:</span>
+                    <span class="vuln-detail-value">''' + html_module.escape(str(details)) + '''</span>
+                </div>'''
+            
+            html += '''
+                <div>
+                    <p><strong><i class="fas fa-code"></i> Payload:</strong></p>
+                    <div class="payload-code">''' + html_module.escape(str(payload)) + '''</div>
+                    <button onclick="copyToClipboard(`''' + html_module.escape(str(payload)).replace('`', '\\`') + '''`)" 
+                            style="background-color: #6c757d; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; margin-top: 5px;">
+                        <i class="fas fa-copy"></i> 复制Payload
+                    </button>
+                </div>
+            </div>'''
+            
+            return html
+        except Exception as e:
+            print(f"ERROR: 生成命令注入漏洞HTML时发生错误: {e}")
+            return '''
+            <div class="vulnerability risk-info">
+                <div class="vuln-title">
+                    <span><i class="fas fa-terminal"></i> 命令注入 #''' + str(index) + '''</span>
+                    <span class="vuln-badge">错误</span>
+                </div>
+                <p>生成漏洞信息时发生错误: ''' + html_module.escape(str(e)) + '''</p>
+            </div>'''
+    
+    @staticmethod
+    def _generate_code_vulnerability_html(vuln, index):
+        """生成代码执行漏洞的HTML"""
+        try:
+            vuln_type = vuln.get('type', '代码执行')
+            parameter = vuln.get('parameter', 'N/A')
+            payload = vuln.get('payload', 'N/A')
+            confidence = vuln.get('confidence', '未知')
+            details = vuln.get('details', '')
+            evidence = vuln.get('evidence', '')
+            url = vuln.get('url', 'N/A')
+            language = vuln.get('language', '未知')
+            technique = vuln.get('technique', '')
+            context = vuln.get('context', '')
+            
+            # 处理URL字段
+            if isinstance(url, list):
+                url_str = url[0] if url else 'N/A'
+            else:
+                url_str = str(url)
+            
+            # 根据置信度设置风险等级
+            if confidence == "高" or confidence == "high" or confidence == "critical":
+                risk_class = "risk-critical"
+                risk_label = "严重"
+                icon = "fas fa-skull-crossbones"
+            elif confidence == "中" or confidence == "medium":
+                risk_class = "risk-high"
+                risk_label = "高风险"
+                icon = "fas fa-exclamation-triangle"
+            elif confidence == "低" or confidence == "low":
+                risk_class = "risk-medium"
+                risk_label = "中风险"
+                icon = "fas fa-exclamation-circle"
+            else:
+                risk_class = "risk-info"
+                risk_label = "未知风险"
+                icon = "fas fa-question-circle"
+            
+            # 语言徽章
+            language_badge = ''
+            if language and language != '未知':
+                language_badge = f'<span class="language-badge">{html_module.escape(str(language))}</span>'
+            
+            html = '''
+            <div class="vulnerability ''' + risk_class + '''">
+                <div class="vuln-title">
+                    <span><i class="fas fa-file-code"></i> 代码执行 #''' + str(index) + ''': ''' + html_module.escape(str(vuln_type)) + language_badge + '''</span>
+                    <span class="vuln-badge"><i class="''' + icon + '''"></i> ''' + risk_label + '''</span>
+                </div>
+                <div class="vuln-details-grid">
+                    <div>
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-tag"></i> 类型:</span>
+                            <span class="vuln-detail-value">''' + html_module.escape(str(vuln_type)) + '''</span>
+                        </div>
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-code"></i> 参数:</span>
+                            <span class="vuln-detail-value"><code>''' + html_module.escape(str(parameter)) + '''</code></span>
+                        </div>
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-language"></i> 编程语言:</span>
+                            <span class="vuln-detail-value">''' + html_module.escape(str(language)) + '''</span>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-link"></i> URL:</span>
+                            <span class="vuln-detail-value"><code>''' + html_module.escape(str(url_str))[:100] + '''</code></span>
+                        </div>
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-shield-alt"></i> 置信度:</span>
+                            <span class="vuln-detail-value">''' + html_module.escape(str(confidence)) + '''</span>
+                        </div>
+                        <div class="vuln-detail-item">
+                            <span class="vuln-detail-label"><i class="fas fa-wrench"></i> 注入技术:</span>
+                            <span class="vuln-detail-value">''' + html_module.escape(str(technique)) + '''</span>
+                        </div>
+                    </div>
+                </div>'''
+            
+            if context:
+                html += '''
+                <div class="vuln-detail-item">
+                    <span class="vuln-detail-label"><i class="fas fa-code-branch"></i> 上下文:</span>
+                    <span class="vuln-detail-value">''' + html_module.escape(str(context)) + '''</span>
+                </div>'''
+            
+            if evidence:
+                html += '''
+                <div class="vuln-detail-item">
+                    <span class="vuln-detail-label"><i class="fas fa-search"></i> 证据:</span>
+                    <span class="vuln-detail-value">''' + html_module.escape(str(evidence)) + '''</span>
+                </div>'''
+            
+            if details:
+                html += '''
+                <div class="vuln-detail-item">
+                    <span class="vuln-detail-label"><i class="fas fa-info-circle"></i> 详情:</span>
+                    <span class="vuln-detail-value">''' + html_module.escape(str(details)) + '''</span>
+                </div>'''
+            
+            html += '''
+                <div>
+                    <p><strong><i class="fas fa-code"></i> Payload:</strong></p>
+                    <div class="payload-code">''' + html_module.escape(str(payload)) + '''</div>
+                    <button onclick="copyToClipboard(`''' + html_module.escape(str(payload)).replace('`', '\\`') + '''`)" 
+                            style="background-color: #6c757d; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; margin-top: 5px;">
+                        <i class="fas fa-copy"></i> 复制Payload
+                    </button>
+                </div>
+            </div>'''
+            
+            return html
+        except Exception as e:
+            print(f"ERROR: 生成代码执行漏洞HTML时发生错误: {e}")
+            return '''
+            <div class="vulnerability risk-info">
+                <div class="vuln-title">
+                    <span><i class="fas fa-file-code"></i> 代码执行 #''' + str(index) + '''</span>
+                    <span class="vuln-badge">错误</span>
+                </div>
+                <p>生成漏洞信息时发生错误: ''' + html_module.escape(str(e)) + '''</p>
+            </div>'''
+    
+    #下面的没有使用
     @staticmethod
     def save_results(results, filename, output_dir="output", save_type=None, scanner=None):
         """保存扫描结果到文件"""
@@ -835,6 +1268,8 @@ pre {{ background-color: #f5c6cb; padding: 15px; border-radius: 5px; overflow: a
                     # 分类统计
                     sql_count = 0
                     xss_count = 0
+                    command_count = 0
+                    code_count = 0
                     other_count = 0
                     
                     for vuln in vulnerabilities:
@@ -843,11 +1278,19 @@ pre {{ background-color: #f5c6cb; padding: 15px; border-radius: 5px; overflow: a
                             sql_count += 1
                         elif 'xss' in vuln_type:
                             xss_count += 1
+                        elif 'command injection' in vuln_type or '命令注入' in vuln_type.lower():
+                            command_count += 1
+                        elif 'code injection' in vuln_type or '代码注入' in vuln_type.lower():
+                            code_count += 1
+                        elif 'template injection' in vuln_type or '文件包含' in vuln_type.lower():
+                            code_count += 1
                         else:
                             other_count += 1
                     
                     f.write(f"SQL注入漏洞: {sql_count} 个\n")
                     f.write(f"XSS漏洞: {xss_count} 个\n")
+                    f.write(f"命令注入漏洞: {command_count} 个\n")
+                    f.write(f"代码执行漏洞: {code_count} 个\n")
                     f.write(f"其他漏洞: {other_count} 个\n\n")
                     
                     # 详细漏洞信息
@@ -856,8 +1299,14 @@ pre {{ background-color: #f5c6cb; padding: 15px; border-radius: 5px; overflow: a
                         confidence = vuln.get('confidence', '未知')
                         parameter = vuln.get('parameter', 'N/A')
                         payload = vuln.get('payload', 'N/A')
+                        os_type = vuln.get('os', '')
+                        language = vuln.get('language', '')
                         
                         f.write(f"{i}. {vuln_type} (置信度: {confidence})\n")
+                        if os_type:
+                            f.write(f"   操作系统: {os_type}\n")
+                        if language:
+                            f.write(f"   编程语言: {language}\n")
                         f.write(f"   参数: {parameter}\n")
                         f.write(f"   Payload: {payload[:100]}\n")
                         f.write("-" * 30 + "\n")

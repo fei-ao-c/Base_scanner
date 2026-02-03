@@ -6,7 +6,7 @@
   "output_dir": "output",
   "max_retries": 3,
   "max_requests_per_second": 20,
-  "max_requests_per_minute": 200,
+  "max_requests_per_minute": 600,
   "max_concurrent_requests": 5,
   "request_timeout": 10,
   "verify_ssl": false,

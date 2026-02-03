@@ -18,7 +18,7 @@ try:
     from modules.request_sender import RequestSender
     from modules.request_builder import RequestBuilder
     from modules.response_parse import ResponseParse
-    from utils import load_config, load_sqli_config, load_xss_payload
+    from utils import load_config, load_sqli_config, load_xss_payload,print_colored
     
     print("✅ 所有模块导入成功")
 except ImportError as e:
@@ -49,7 +49,7 @@ class sampilescanner:
         # 初始化速率限制器
         self.rate_limiter = RateLimiter(
             max_requests_per_second=self.config.get("max_requests_per_second", 20),
-            max_requests_per_minute=self.config.get("max_requests_per_minute", 200)
+            max_requests_per_minute=self.config.get("max_requests_per_minute", 600)
         )
         
         # 初始化请求队列
@@ -1277,8 +1277,10 @@ class sampilescanner:
         if not url.startswith(('http://', 'https://')):
             print(f"⚠️  警告: URL缺少协议，添加http://")
             url = f"http://{url}"
-
-        print(f"\n🔍 开始全面检测SQL注入: {url}")
+        
+        print_colored(f"\n{'='*60}","yellow")
+        print_colored(f"\n🔍 开始全面检测SQL注入: {url}","red")
+        print_colored(f"\n{'='*60}","yellow")
         if param_name and param_value:
             print(f"   参数: {param_name} = {param_value}")
         print(f"   方法: {method}")
@@ -1635,9 +1637,10 @@ class sampilescanner:
             if not isinstance(url, str):
                 print(f"跳过非字符串URL: {url}")
                 continue
-            
-            print(f"\n[+] 开始XSS扫描URL: {url}")
-            
+
+            print_colored(f"\n{'='*60}","yellow")
+            print_colored(f"\n🔍 开始XSS扫描URL: {url}","red")
+            print_colored(f"\n{'='*60}","yellow")
             # 提取URL中的参数
             url_params = self._extract_parameters(url)
             
@@ -1803,8 +1806,8 @@ class sampilescanner:
                         print(f"  [-] 存储型XSS测试出错: {e}")
         
         # 统计结果
-        print(f"\n{'='*60}")
-        print(f"扫描完成！共发现 {len(vulnerabilities)} 个XSS漏洞")
+        # print(f"\n{'='*60}")
+        # print(f"扫描完成！共发现 {len(vulnerabilities)} 个XSS漏洞")
         
         # 按置信度排序
         vulnerabilities.sort(key=lambda x: {"高": 0, "中": 1, "低": 2}[x.get("confidence", "低")])
@@ -1820,18 +1823,44 @@ class sampilescanner:
         # 按置信度排序
         vulnerabilities.sort(key=lambda x: {"高": 0, "中": 1, "低": 2}[x.get("confidence", "低")])
         
-        # 输出详细结果
+        # 输出详细结果（更具可读性，包含载荷与地址列表）
         for i, vuln in enumerate(vulnerabilities, 1):
-            print(f"\n漏洞 #{i}:")
-            print(f"  类型: {vuln['type']}")
-            print(f"  URL: {vuln['url']}")
-            print(f"  参数: {vuln.get('parameter', 'N/A')}")
-            print(f"  方法: {vuln.get('method', 'GET')}")
-            print(f"  置信度: {vuln['confidence']}")
-            print(f"  详情: {vuln['details']}")
+            # 构建地址列表，优先使用tested_url，再fallback到url
+            addresses = []
+            if vuln.get('tested_url'):
+                if isinstance(vuln['tested_url'], (list, tuple)):
+                    addresses = list(vuln['tested_url'])
+                else:
+                    addresses = [vuln['tested_url']]
+            elif vuln.get('url'):
+                if isinstance(vuln['url'], (list, tuple)):
+                    addresses = list(vuln['url'])
+                else:
+                    addresses = [vuln['url']]
+
+            vuln_type = vuln.get('type', 'XSS')
+            payload = vuln.get('payload') or vuln.get('injected_data') or vuln.get('details') or 'N/A'
+
+            # 打印为简洁的编号列表，示例格式：
+            # 1. Command Injection (Echo-Based)
+            #    载荷: & echo COMMAND_TEST
+            #    地址: ['http://127.0.0.1/']
+            print(f"{i}. {vuln_type}")
+            # 对载荷做友好展示：如果是字典（POST注入），则尝试打印关键字段
+            if isinstance(payload, dict):
+                try:
+                    # 取第一个键值对作为示例载荷展示
+                    k, v = next(iter(payload.items()))
+                    print(f"   载荷: {k}={v}")
+                except Exception:
+                    print(f"   载荷: {payload}")
+            else:
+                print(f"   载荷: {payload}")
+
+            print(f"   地址: {addresses}")
         
-        print(f"\n{'='*60}")
-        print(f"扫描完成！共发现 {len(vulnerabilities)} 个XSS漏洞")
+        # print(f"\n{'='*60}")
+        # print(f"扫描完成！共发现 {len(vulnerabilities)} 个XSS漏洞")
         
         # 更新扫描结果
         self.results['vulnerabilities'].extend(vulnerabilities)
