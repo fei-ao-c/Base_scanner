@@ -40,7 +40,15 @@ def load_config(choice=None):
         "max_threads": 50,
         "crawl_depth": 2,
         "output_dir": "output",
-        "user_agent": "Mozilla/5.0 ..."
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "request_timeout": 30,  # HTTP 请求超时时间（秒）
+        "verify_ssl": False,  # 不验证 SSL 证书
+        "max_retries": 2,  # 最大重试次数
+        "max_concurrent_requests": 3,  # 最大并发请求数
+        "max_queue_size": 50,  # 请求队列大小
+        "max_requests_per_second": 10,  # 每秒最大请求数
+        "max_requests_per_minute": 200,  # 每分钟最大请求数
+        "proxies": None  # 不使用代理
     }
 
     if os.path.exists(config_path):
@@ -69,6 +77,28 @@ def load_xss_payload():
     #for payload in payload_list:
         #print(f"xss_payload: {payload}\n")
     return payload_list
+
+def load_command_config():
+    """加载命令执行payload配置"""
+    try:
+        if os.path.exists("config/command_payloads.json"):
+            with open("config/command_payloads.json", 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        print_colored(f"[-] 加载命令配置失败: {e}", "yellow")
+    # 返回空字典以使用默认配置
+    return {}
+
+def load_code_exec_config():
+    """加载代码执行payload配置"""
+    try:
+        if os.path.exists("config/code_payloads.json"):
+            with open("config/code_payloads.json", 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        print_colored(f"[-] 加载代码执行配置失败: {e}", "yellow")
+    # 返回空字典以使用默认配置
+    return {}
 
 def load_sqli_config():
     """加载默认的sqli_payload"""

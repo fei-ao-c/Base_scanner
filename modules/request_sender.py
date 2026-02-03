@@ -82,9 +82,18 @@ class RequestSender:
         session.mount("http://", adapter)
         session.mount("https://", adapter)
         
-        # 设置代理
+        # 显式处理代理设置
         if self.proxies:
             session.proxies.update(self.proxies)
+        else:
+            # 禁用所有代理（包括环境变量中的代理）
+            session.proxies = {
+                'http': None,
+                'https': None,
+                'all': None
+            }
+            # 额外确保：清空会话的代理字典
+            session.trust_env = False
         
         return session
     

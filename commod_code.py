@@ -37,6 +37,13 @@ class CommandCodeScanner:
     def __init__(self, config=None):
         self.config = config or load_config()
         self.session = requests.Session()
+        # 禁用所有代理（包括环境变量中的代理）
+        self.session.trust_env = False
+        self.session.proxies = {
+            'http': None,
+            'https': None,
+            'all': None
+        }
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; rv:109.0) Gecko/20100101 Firefox/115.0"
         })
@@ -44,9 +51,34 @@ class CommandCodeScanner:
         # 获取日志记录器
         self.logger = logging.getLogger('vuln_scanner.command_code')
         
-        # 加载配置
-        self.cmd_config = load_command_config() if 'load_command_config' in globals() else self._get_default_cmd_config()
-        self.code_config = load_code_exec_config() if 'load_code_exec_config' in globals() else self._get_default_code_config()
+        # 加载payload配置
+        print("📋 开始加载Payload配置...")
+        
+        # 尝试从外部配置加载，失败则使用内置默认配置
+        try:
+            loaded_cmd_config = load_command_config()
+            if loaded_cmd_config and 'payloads' in loaded_cmd_config:
+                self.cmd_config = loaded_cmd_config
+                print(f"✅ 命令执行Payload加载成功: {len(self.cmd_config.get('payloads', {}))} 个类别")
+            else:
+                raise ValueError("外部配置为空，使用默认配置")
+        except Exception as e:
+            print(f"⚠️  命令执行Payload加载失败: {e}，使用内置默认配置")
+            self.cmd_config = self._get_default_cmd_config()
+            print(f"✅ 使用默认配置: {len(self.cmd_config.get('payloads', {}))} 个类别")
+        
+        try:
+            loaded_code_config = load_code_exec_config()
+            if loaded_code_config and 'payloads' in loaded_code_config:
+                self.code_config = loaded_code_config
+                print(f"✅ 代码执行Payload加载成功: {len(self.code_config.get('payloads', {}))} 个类别")
+            else:
+                raise ValueError("外部配置为空，使用默认配置")
+        except Exception as e:
+            print(f"⚠️  代码执行Payload加载失败: {e}，使用内置默认配置")
+            self.code_config = self._get_default_code_config()
+            print(f"✅ 使用默认配置: {len(self.code_config.get('payloads', {}))} 个类别")
+        
         
         # 初始化速率限制器
         self.rate_limiter = RateLimiter(
@@ -54,20 +86,20 @@ class CommandCodeScanner:
             max_requests_per_minute=self.config.get("max_requests_per_minute", 200)
         )
         
-        # 初始化请求队列
+        # 初始化请求队列（降低并发避免堆积）
         self.request_queue = RequestQueueManager(
-            max_concurrent=self.config.get("max_concurrent_requests", 5),
-            max_queue_size=self.config.get("max_queue_size", 100),
+            max_concurrent=self.config.get("max_concurrent_requests", 3),  # 从5降低到3
+            max_queue_size=self.config.get("max_queue_size", 50),  # 队列大小从100降低到50
             rate_limiter=self.rate_limiter
         )
         
-        # 初始化请求发送器
+        # 初始化请求发送器（禁用代理以直接连接目标，增加超时时间）
         self.request_sender = RequestSender(
-            timeout=self.config.get("request_timeout", 10),
+            timeout=self.config.get("request_timeout", 30),  # 从10秒增加到30秒
             verify_ssl=self.config.get("verify_ssl", False),
             user_agent=self.config.get("user_agent"),
-            proxies=self.config.get("proxies"),
-            max_retries=self.config.get("max_retries", 3)
+            proxies=None,  # 禁用代理，直接连接目标网站
+            max_retries=self.config.get("max_retries", 2)  # 减少重试次数避免堆积
         )
 
         # 初始化请求构造器和响应解析器
@@ -684,7 +716,7 @@ class CommandCodeScanner:
                 return None
 
         try:
-            result = self.request_queue.get_result(task_id, timeout=30)
+            result = self.request_queue.get_result(task_id, timeout=60)  # 从30秒增加到60秒
             self._record_request_result(result)
             return result
         except Exception as e:
@@ -777,11 +809,12 @@ class CommandCodeScanner:
             return ""
 
         try:
-            parsed = urlparse(url)
-            query_dict = parse_qs(parsed.query)
-            query_dict[param_name] = [value]
+            parsed = urlparse(url)#url拆解成6份
+            query_dict = parse_qs(parsed.query)#转换为字典
+            query_dict[param_name] = [value]#添加新的参数(查询字符串参数值是列表)
 
-            new_query = urlencode(query_dict, doseq=True)
+            new_query = urlencode(query_dict, doseq=True)#重新编码查询字符串(字典变查询字符串)
+             #重新构建完整的URL
             return parsed._replace(query=new_query).geturl()
         except Exception as e:
             print(f"❌ 构建URL参数失败: {e}")
@@ -2001,8 +2034,8 @@ if __name__ == "__main__":
     
     # 测试URL示例
     test_urls = [
-        "http://testphp.vulnweb.com/artists.php?artist=1",
-        "http://testphp.vulnweb.com/categories.php?cat=1"
+        "http://www.sqli-labs.com/Less-1",
+        #"http://testphp.vulnweb.com/categories.php?cat=1"
     ]
     
     for url in test_urls:
@@ -2010,10 +2043,10 @@ if __name__ == "__main__":
         print(f"开始扫描: {url}")
         
         # 扫描命令注入
-        cmd_vulns, cmd_results = scanner.check_command_injection(url, "artist", "1")
+        cmd_vulns, cmd_results = scanner.check_command_injection(url, "id", "1")
         
         # 扫描代码注入
-        code_vulns, code_results = scanner.check_code_injection(url, "artist", "1")
+        code_vulns, code_results = scanner.check_code_injection(url, "id", "1")
         
         if not cmd_vulns and not code_vulns:
             print(f"未发现命令执行或代码执行漏洞")
