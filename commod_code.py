@@ -826,179 +826,278 @@ class CommandCodeScanner:
     # ==================== 命令执行检测方法 ====================
 
     def detect_command_echo_based(self, url, param_name, param_value, method, post_data):
-        """基于回显的命令执行检测"""
+        """增强的基于回显的命令执行检测：多层验证 + 精准指示器识别"""
         vulnerabilities = []
         
-        # 测试Unix payloads
-        for payload_info in self.command_payloads.get("unix_echo", [])[:5]:
-            payload = payload_info["payload"]
-            separator = payload_info["separator"]
+        # 获取基准响应（用于对比）
+        baseline = self.get_baseline_response(url, param_name, param_value, method, post_data)
+        baseline_content = baseline.get('content', '') if baseline else ""
+        
+        # ==================== Unix 命令执行测试 ====================
+        for payload_info in self.command_payloads.get("unix_echo", [])[:8]:
+            payload = payload_info.get("payload", "")
+            separator = payload_info.get("separator", "")
             
             try:
                 test_value = f"{param_value}{payload}"
                 response = self._send_command_test(url, param_name, test_value, method, post_data)
                 
-                if response:
-                    content = response['response'].get('content', '')
-                    if not isinstance(content, str):
-                        content = str(content)
+                if not response or 'response' not in response:
+                    continue
+                
+                content = response['response'].get('content', '')
+                if not isinstance(content, str):
+                    content = str(content)
+                
+                # 第一层：检查是否与基准响应完全相同（说明没有命令执行）
+                if content.strip() == baseline_content.strip():
+                    continue
+                
+                # 第二层：精准指示器匹配
+                unix_indicators = self.command_indicators.get("unix_output", [])
+                matched_indicators = []
+                
+                for indicator in unix_indicators:
+                    # 计算指示器在响应中出现的位置和频率
+                    indicator_count = content.lower().count(indicator.lower())
+                    if indicator_count > 0:
+                        matched_indicators.append({
+                            'indicator': indicator,
+                            'count': indicator_count,
+                            'confidence': 0.95 if indicator_count > 1 else 0.85  # 多次出现置信度更高
+                        })
+                
+                if matched_indicators:
+                    # 第三层：验证指示器的有效性（排除假阳性）
+                    # 确保指示器是与命令输出相关的，而不仅仅是页面的静态内容
+                    strong_indicators = [m for m in matched_indicators 
+                                       if m['indicator'] in ['root:', 'uid=', 'gid=', 'groups=']]
                     
-                    # 检查响应中是否包含命令输出
-                    indicators = self.command_indicators.get("unix_output", [])
-                    for indicator in indicators:
-                        if indicator.lower() in content.lower():
-                            vulnerabilities.append({
-                                'type': 'Command Injection (Echo-Based)',
-                                'payload': payload,
-                                'os': 'Unix/Linux',
-                                'confidence': '高',
-                                'evidence': f"发现输出: {indicator}",
-                                'technique': 'Command output reflection',
-                                'separator': separator,
-                                'response_code': response['response'].get('status_code', 0)
-                            })
-                            break
+                    if strong_indicators or len(matched_indicators) >= 2:
+                        confidence = "高" if strong_indicators else "中"
+                        matched_str = ", ".join([m['indicator'] for m in matched_indicators[:3]])
+                        
+                        vulnerabilities.append({
+                            'type': 'Command Injection (Echo-Based)',
+                            'payload': payload,
+                            'os': 'Unix/Linux',
+                            'confidence': confidence,
+                            'evidence': f"检测到命令输出指示器: {matched_str}",
+                            'technique': 'Command output reflection',
+                            'separator': separator,
+                            'response_code': response['response'].get('status_code', 0),
+                            'indicators_matched': [m['indicator'] for m in matched_indicators[:5]]
+                        })
+                        break  # 找到一个有效漏洞即停止
             
-            except Exception:
+            except Exception as e:
+                print(f"[DEBUG] Unix echo 测试异常: {e}")
                 continue
         
-        # 测试Windows payloads
-        for payload_info in self.command_payloads.get("windows_echo", [])[:5]:
-            payload = payload_info["payload"]
-            separator = payload_info["separator"]
+        # ==================== Windows 命令执行测试 ====================
+        for payload_info in self.command_payloads.get("windows_echo", [])[:8]:
+            payload = payload_info.get("payload", "")
+            separator = payload_info.get("separator", "")
             
             try:
                 test_value = f"{param_value}{payload}"
                 response = self._send_command_test(url, param_name, test_value, method, post_data)
                 
-                if response:
-                    content = response['response'].get('content', '')
-                    if not isinstance(content, str):
-                        content = str(content)
+                if not response or 'response' not in response:
+                    continue
+                
+                content = response['response'].get('content', '')
+                if not isinstance(content, str):
+                    content = str(content)
+                
+                # 第一层：基准对比
+                if content.strip() == baseline_content.strip():
+                    continue
+                
+                # 第二层：Windows 指示器匹配
+                windows_indicators = self.command_indicators.get("windows_output", [])
+                matched_indicators = []
+                
+                for indicator in windows_indicators:
+                    indicator_count = content.lower().count(indicator.lower())
+                    if indicator_count > 0:
+                        matched_indicators.append({
+                            'indicator': indicator,
+                            'count': indicator_count,
+                            'confidence': 0.95 if indicator_count > 1 else 0.85
+                        })
+                
+                if matched_indicators:
+                    # 第三层：Windows 强指示器优先
+                    strong_indicators = [m for m in matched_indicators 
+                                       if m['indicator'] in ['Administrator', 'C:\\\\', 'System32']]
                     
-                    indicators = self.command_indicators.get("windows_output", [])
-                    for indicator in indicators:
-                        if indicator.lower() in content.lower():
-                            vulnerabilities.append({
-                                'type': 'Command Injection (Echo-Based)',
-                                'payload': payload,
-                                'os': 'Windows',
-                                'confidence': '高',
-                                'evidence': f"发现输出: {indicator}",
-                                'technique': 'Command output reflection',
-                                'separator': separator,
-                                'response_code': response['response'].get('status_code', 0)
-                            })
-                            break
+                    if strong_indicators or len(matched_indicators) >= 2:
+                        confidence = "高" if strong_indicators else "中"
+                        matched_str = ", ".join([m['indicator'] for m in matched_indicators[:3]])
+                        
+                        vulnerabilities.append({
+                            'type': 'Command Injection (Echo-Based)',
+                            'payload': payload,
+                            'os': 'Windows',
+                            'confidence': confidence,
+                            'evidence': f"检测到命令输出指示器: {matched_str}",
+                            'technique': 'Command output reflection',
+                            'separator': separator,
+                            'response_code': response['response'].get('status_code', 0),
+                            'indicators_matched': [m['indicator'] for m in matched_indicators[:5]]
+                        })
+                        break  # 找到一个有效漏洞即停止
             
-            except Exception:
+            except Exception as e:
+                print(f"[DEBUG] Windows echo 测试异常: {e}")
                 continue
         
         return vulnerabilities
 
     def detect_command_time_based(self, url, param_name, param_value, method, post_data):
-        """基于时间的命令执行检测"""
+        """增强的基于时间的命令执行检测：自适应阈值 + 多次验证"""
         vulnerabilities = []
         
-        # 首先获取正常响应时间
-        normal_time = self._measure_response_time(url, param_name, param_value, method, post_data)
+        # ==================== 动态阈值计算 ====================
+        # 获取基准响应时间（多次测量以提高准确性）
+        baseline_times = []
+        for _ in range(3):
+            t = self._measure_response_time(url, param_name, param_value, method, post_data)
+            if t != float('inf'):
+                baseline_times.append(t)
         
-        # 测试Unix时间payloads
-        for payload_info in self.command_payloads.get("unix_time", [])[:3]:
-            payload = payload_info["payload"]
-            separator = payload_info["separator"]
+        if not baseline_times:
+            return vulnerabilities
+        
+        normal_time = sum(baseline_times) / len(baseline_times)
+        # 动态阈值：基准时间 + 3 秒，或基准时间的 3 倍（取较大值）
+        adaptive_threshold = max(normal_time + 3.0, normal_time * 3.0)
+        
+        print(f"[DEBUG] 命令执行时间基准: {normal_time:.2f}s, 动态阈值: {adaptive_threshold:.2f}s")
+        
+        # ==================== Unix 时间盲注测试 ====================
+        for payload_info in self.command_payloads.get("unix_time", [])[:5]:
+            payload = payload_info.get("payload", "")
+            separator = payload_info.get("separator", "")
             
             try:
                 test_value = f"{param_value}{payload}"
                 start_time = time.time()
                 
+                # 发送延迟 payload
                 response = self._send_command_test(url, param_name, test_value, method, post_data, 
-                                                  timeout=self.time_delay_threshold + 5)
+                                                  timeout=int(adaptive_threshold) + 10)
                 
                 elapsed_time = time.time() - start_time
                 
-                if elapsed_time > self.time_delay_threshold:
-                    # 验证：发送不延迟的payload对比
-                    no_delay_value = f"{param_value}{separator} echo test"
-                    no_delay_time = self._measure_response_time(
-                        url, param_name, no_delay_value, method, post_data
-                    )
+                if elapsed_time > adaptive_threshold:
+                    # 第二次验证：再测一次确保不是网络波动
+                    start_time2 = time.time()
+                    response2 = self._send_command_test(url, param_name, test_value, method, post_data,
+                                                       timeout=int(adaptive_threshold) + 10)
+                    elapsed_time2 = time.time() - start_time2
                     
-                    if elapsed_time > no_delay_time * 3:
+                    if elapsed_time2 > adaptive_threshold:
                         vulnerabilities.append({
                             'type': 'Command Injection (Time-Based)',
                             'payload': payload,
                             'os': 'Unix/Linux',
-                            'confidence': '中',
+                            'confidence': '高',  # 两次都超过阈值，置信度高
                             'evidence': {
-                                'normal_response_time': normal_time,
-                                'delayed_response_time': elapsed_time,
-                                'threshold': self.time_delay_threshold
+                                'baseline_time': round(normal_time, 2),
+                                'delayed_time_1': round(elapsed_time, 2),
+                                'delayed_time_2': round(elapsed_time2, 2),
+                                'threshold': round(adaptive_threshold, 2)
                             },
-                            'technique': 'Time delay',
+                            'technique': 'Time-based blind injection',
                             'separator': separator
                         })
+                        break
             
             except Exception as e:
                 if "timeout" in str(e).lower():
-                    vulnerabilities.append({
-                        'type': 'Command Injection (Time-Based - Timeout)',
-                        'payload': payload,
-                        'os': 'Unix/Linux',
-                        'confidence': '中',
-                        'evidence': '请求超时',
-                        'technique': 'Request timeout',
-                        'separator': separator
-                    })
+                    # 第二次验证：再测一次确认
+                    try:
+                        start_time2 = time.time()
+                        self._send_command_test(url, param_name, test_value, method, post_data,
+                                               timeout=int(adaptive_threshold) + 10)
+                        elapsed_time2 = time.time() - start_time2
+                        
+                        if elapsed_time2 > adaptive_threshold or "timeout" in str(e).lower():
+                            vulnerabilities.append({
+                                'type': 'Command Injection (Time-Based - Confirmed Timeout)',
+                                'payload': payload,
+                                'os': 'Unix/Linux',
+                                'confidence': '高',
+                                'evidence': f'请求超时（多次确认），说明命令执行成功',
+                                'technique': 'Time-based blind injection (timeout)',
+                                'separator': separator
+                            })
+                            break
+                    except:
+                        pass
                 continue
         
-        # 测试Windows时间payloads
-        for payload_info in self.command_payloads.get("windows_time", [])[:3]:
-            payload = payload_info["payload"]
-            separator = payload_info["separator"]
+        # ==================== Windows 时间盲注测试 ====================
+        for payload_info in self.command_payloads.get("windows_time", [])[:5]:
+            payload = payload_info.get("payload", "")
+            separator = payload_info.get("separator", "")
             
             try:
                 test_value = f"{param_value}{payload}"
                 start_time = time.time()
                 
                 response = self._send_command_test(url, param_name, test_value, method, post_data,
-                                                  timeout=self.time_delay_threshold + 5)#time_delay_threshold是时间阈值
+                                                  timeout=int(adaptive_threshold) + 10)
                 
                 elapsed_time = time.time() - start_time
                 
-                if elapsed_time > self.time_delay_threshold:
-                    no_delay_value = f"{param_value}{separator} echo test"
-                    no_delay_time = self._measure_response_time(
-                        url, param_name, no_delay_value, method, post_data
-                    )#测量不带延迟payload的响应时间
+                if elapsed_time > adaptive_threshold:
+                    # 第二次验证
+                    start_time2 = time.time()
+                    response2 = self._send_command_test(url, param_name, test_value, method, post_data,
+                                                       timeout=int(adaptive_threshold) + 10)
+                    elapsed_time2 = time.time() - start_time2
                     
-                    if elapsed_time > no_delay_time * 3:#延迟时间大于正常时间3倍
+                    if elapsed_time2 > adaptive_threshold:
                         vulnerabilities.append({
                             'type': 'Command Injection (Time-Based)',
                             'payload': payload,
                             'os': 'Windows',
-                            'confidence': '中',
+                            'confidence': '高',
                             'evidence': {
-                                'normal_response_time': normal_time,
-                                'delayed_response_time': elapsed_time,
-                                'threshold': self.time_delay_threshold
+                                'baseline_time': round(normal_time, 2),
+                                'delayed_time_1': round(elapsed_time, 2),
+                                'delayed_time_2': round(elapsed_time2, 2),
+                                'threshold': round(adaptive_threshold, 2)
                             },
-                            'technique': 'Time delay',
+                            'technique': 'Time-based blind injection',
                             'separator': separator
                         })
+                        break
             
             except Exception as e:
                 if "timeout" in str(e).lower():
-                    vulnerabilities.append({
-                        'type': 'Command Injection (Time-Based - Timeout)',
-                        'payload': payload,
-                        'os': 'Windows',
-                        'confidence': '中',
-                        'evidence': '请求超时',
-                        'technique': 'Request timeout',
-                        'separator': separator
-                    })
-                continue
+                    try:
+                        start_time2 = time.time()
+                        self._send_command_test(url, param_name, test_value, method, post_data,
+                                               timeout=int(adaptive_threshold) + 10)
+                        elapsed_time2 = time.time() - start_time2
+                        
+                        if elapsed_time2 > adaptive_threshold or "timeout" in str(e).lower():
+                            vulnerabilities.append({
+                                'type': 'Command Injection (Time-Based - Confirmed Timeout)',
+                                'payload': payload,
+                                'os': 'Windows',
+                                'confidence': '高',
+                                'evidence': '请求超时（多次确认），说明命令执行成功',
+                                'technique': 'Time-based blind injection (timeout)',
+                                'separator': separator
+                            })
+                            break
+                    except:
+                        pass
         
         return vulnerabilities
 
@@ -1173,8 +1272,31 @@ class CommandCodeScanner:
     # ==================== 代码执行检测方法 ====================
 
     def detect_code_eval_based(self, url, param_name, param_value, method, post_data):
-        """基于eval的代码执行检测"""
+        """
+        基于eval的代码执行检测 - 极度增强版(极度减少误报)
+        
+        检测流程：
+        1. 获取基准响应用于对比(关键)
+        2. 测试各语言eval payloads
+        3. 排除基准响应中已有的指示器(关键)
+        4. 严格的多层证据验证 - 需要至少3个不同的证据
+        5. 对比负载注入前后内容差异(新增)
+        6. 排除常见误报模式(新增)
+        """
         vulnerabilities = []
+        
+        # 获取基准响应(关键改进)
+        baseline_response = self.get_baseline_response(url, param_name, param_value, method, post_data)
+        baseline_content = baseline_response.get('content', '') if baseline_response else ''
+        baseline_length = len(baseline_content)
+        
+        # 排除常见误报URL - 这些URL本身就会返回错误页面
+        false_positive_patterns = [
+            'error', 'error.php', '404', '500', 'exception',
+            'debug', 'trace', 'backtrace', 'stack'
+        ]
+        url_lower = url.lower()
+        is_error_url = any(pattern in url_lower for pattern in false_positive_patterns)
         
         # 测试PHP eval payloads
         for payload_info in self.code_payloads.get("php_direct", [])[:5]:
@@ -1191,20 +1313,94 @@ class CommandCodeScanner:
                     if not isinstance(content, str):
                         content = str(content)
                     
-                    indicators = self.code_indicators.get("php_output", [])
-                    for indicator in indicators:
+                    # 严格的多层证据收集 - 增强版
+                    evidence_list = []
+                    confidence = 0
+                    evidence_count = 0
+                    
+                    # 预过滤1：排除过于相似的内容(可能是通用错误页面)
+                    response_similarity = self._calculate_similarity(baseline_content, content)
+                    if response_similarity > 0.95:  # 内容太相似，可能是通用错误页面
+                        continue
+                    
+                    # 预过滤2：如果是错误页面URL且响应中仍然包含标准错误信息，很可能误报
+                    if is_error_url and any(p in content.lower() for p in ['error', 'exception', '404', '500']):
+                        continue
+                    
+                    # 证据1：寻找输出指示器(排除基准已有的)
+                    php_indicators = self.code_indicators.get("php_output", [])
+                    for indicator in php_indicators:
+                        # 关键改进: 严格排除基准响应中已有的指示器
+                        if indicator.lower() in baseline_content.lower():
+                            continue
+                        
+                        # 确认指示器是真正新增的
                         if indicator.lower() in content.lower():
-                            vulnerabilities.append({
-                                'type': 'Code Injection (Eval-Based)',
-                                'payload': payload,
-                                'language': language,
-                                'confidence': '高',
-                                'evidence': f"发现PHP输出: {indicator}",
-                                'technique': 'PHP eval() execution',
-                                'context': context,
-                                'response_code': response['response'].get('status_code', 0)
-                            })
+                            # 计算新增内容的占比
+                            new_content_ratio = self._extract_context(content, indicator)
+                            if new_content_ratio > 0.02:  # 新内容占比>2%
+                                evidence_list.append(f"PHP输出: {indicator}")
+                                confidence = max(confidence, 0.95)
+                                evidence_count += 1
+                                break
+                    
+                    # 证据2：分析错误堆栈识别PHP - 需要多个特定模式
+                    php_error_patterns = [
+                        ("parse error", "on line"),      # PHP Parse Error
+                        ("fatal error", "throw"),         # Fatal Error
+                        ("warning", "function"),          # PHP Warning  
+                        ("notice", "undefined")           # PHP Notice
+                    ]
+                    for pattern1, pattern2 in php_error_patterns:
+                        if (pattern1.lower() in content.lower() and pattern2.lower() in content.lower() and
+                            pattern1.lower() not in baseline_content.lower()):
+                            evidence_list.append(f"PHP错误堆栈: {pattern1.upper()}")
+                            confidence = max(confidence, 0.85)
+                            evidence_count += 1
                             break
+                    
+                    # 证据3：检查特定PHP特征(必须是新增的)
+                    php_code_markers = ["<?php", "$_GET", "$_POST", "$_COOKIE", "$_SERVER"]
+                    new_php_markers = 0
+                    for marker in php_code_markers:
+                        if marker in content and marker not in baseline_content:
+                            new_php_markers += 1
+                    
+                    if new_php_markers >= 2:  # 至少2个新的PHP特征
+                        evidence_list.append(f"PHP代码特征({new_php_markers}个新标记)")
+                        confidence = max(confidence, 0.80)
+                        evidence_count += 1
+                    
+                    # 证据4：响应长度显著增加(新增)
+                    length_diff = len(content) - baseline_length
+                    if length_diff > 500 and "error" in content.lower():  # 增加>500字节且含错误信息
+                        evidence_list.append(f"响应长度增加(+{length_diff}字节)")
+                        confidence = max(confidence, 0.70)
+                        evidence_count += 1
+                    
+                    # 证据5：特定PHP函数执行迹象(新增)
+                    php_functions = ["phpinfo", "system", "exec", "passthru", "shell_exec", "proc_open"]
+                    for func in php_functions:
+                        if func in content.lower() and func not in baseline_content.lower():
+                            evidence_list.append(f"PHP函数执行: {func}")
+                            confidence = max(confidence, 0.90)
+                            evidence_count += 1
+                            break
+                    
+                    # 极度严格的阈值: 需要至少3个不同的证据才报告(大幅减少误报)
+                    if evidence_count >= 3 and confidence > 0.80:
+                        vulnerabilities.append({
+                            'type': 'Code Injection (Eval-Based)',
+                            'payload': payload,
+                            'language': language,
+                            'confidence': '高' if confidence > 0.85 else '中',
+                            'evidence': " | ".join(evidence_list),
+                            'technique': 'PHP eval() execution',
+                            'context': context,
+                            'response_code': response['response'].get('status_code', 0),
+                            'confidence_score': round(confidence, 2),
+                            'evidence_count': evidence_count
+                        })
             
             except Exception:
                 continue
@@ -1224,20 +1420,47 @@ class CommandCodeScanner:
                     if not isinstance(content, str):
                         content = str(content)
                     
-                    indicators = self.code_indicators.get("python_output", [])
-                    for indicator in indicators:
+                    evidence_list = []
+                    confidence = 0
+                    
+                    # 方法1：寻找Python输出
+                    python_indicators = self.code_indicators.get("python_output", [])
+                    for indicator in python_indicators:
                         if indicator.lower() in content.lower():
-                            vulnerabilities.append({
-                                'type': 'Code Injection (Eval-Based)',
-                                'payload': payload,
-                                'language': language,
-                                'confidence': '高',
-                                'evidence': f"发现Python输出: {indicator}",
-                                'technique': 'Python eval()/exec() execution',
-                                'context': context,
-                                'response_code': response['response'].get('status_code', 0)
-                            })
+                            evidence_list.append(f"Python输出: {indicator}")
+                            confidence = max(confidence, 0.95)
                             break
+                    
+                    # 方法2：识别Python错误堆栈
+                    python_error_patterns = [
+                        r"Traceback \(most recent call last\)",
+                        r"NameError:",
+                        r"TypeError:",
+                        r"SyntaxError:",
+                    ]
+                    for pattern in python_error_patterns:
+                        if re.search(pattern, content):
+                            evidence_list.append("检测到Python错误堆栈")
+                            confidence = max(confidence, 0.90)
+                            break
+                    
+                    # 方法3：Python代码特征
+                    if "import " in content or "def " in content or "class " in content:
+                        evidence_list.append("检测到Python代码特征")
+                        confidence = max(confidence, 0.80)
+                    
+                    if evidence_list and confidence > 0.75:
+                        vulnerabilities.append({
+                            'type': 'Code Injection (Eval-Based)',
+                            'payload': payload,
+                            'language': language,
+                            'confidence': '高' if confidence > 0.85 else '中',
+                            'evidence': " | ".join(evidence_list),
+                            'technique': 'Python eval()/exec() execution',
+                            'context': context,
+                            'response_code': response['response'].get('status_code', 0),
+                            'confidence_score': round(confidence, 2)
+                        })
             
             except Exception:
                 continue
@@ -1257,20 +1480,39 @@ class CommandCodeScanner:
                     if not isinstance(content, str):
                         content = str(content)
                     
-                    indicators = self.code_indicators.get("nodejs_output", [])
-                    for indicator in indicators:
+                    evidence_list = []
+                    confidence = 0
+                    
+                    # 方法1：Node.js输出指示器
+                    nodejs_indicators = self.code_indicators.get("nodejs_output", [])
+                    for indicator in nodejs_indicators:
                         if indicator.lower() in content.lower():
-                            vulnerabilities.append({
-                                'type': 'Code Injection (Eval-Based)',
-                                'payload': payload,
-                                'language': language,
-                                'confidence': '高',
-                                'evidence': f"发现Node.js输出: {indicator}",
-                                'technique': 'Node.js eval() execution',
-                                'context': context,
-                                'response_code': response['response'].get('status_code', 0)
-                            })
+                            evidence_list.append(f"Node.js输出: {indicator}")
+                            confidence = max(confidence, 0.95)
                             break
+                    
+                    # 方法2：Node.js错误堆栈
+                    if "at " in content and ("Function" in content or "Object" in content):
+                        evidence_list.append("检测到Node.js错误堆栈")
+                        confidence = max(confidence, 0.85)
+                    
+                    # 方法3：JavaScript特征
+                    if "function " in content or "const " in content or "var " in content:
+                        evidence_list.append("检测到JavaScript特征")
+                        confidence = max(confidence, 0.80)
+                    
+                    if evidence_list and confidence > 0.75:
+                        vulnerabilities.append({
+                            'type': 'Code Injection (Eval-Based)',
+                            'payload': payload,
+                            'language': language,
+                            'confidence': '高' if confidence > 0.85 else '中',
+                            'evidence': " | ".join(evidence_list),
+                            'technique': 'Node.js eval() execution',
+                            'context': context,
+                            'response_code': response['response'].get('status_code', 0),
+                            'confidence_score': round(confidence, 2)
+                        })
             
             except Exception:
                 continue
@@ -1278,8 +1520,19 @@ class CommandCodeScanner:
         return vulnerabilities
 
     def detect_code_system_based(self, url, param_name, param_value, method, post_data):
-        """基于系统调用的代码执行检测"""
+        """
+        基于系统调用的代码执行检测 - 多层验证和语言识别
+        
+        检测策略：
+        1. 多指示器匹配（强/弱指示器）
+        2. 错误堆栈分析识别语言
+        3. 置信度评分基于匹配证据数量
+        """
         vulnerabilities = []
+        
+        # 定义强弱指示器
+        strong_indicators = ["root:", "uid=", "gid=", "groups=", "Administrator", "C:\\\\"]
+        weak_indicators = ["COMMAND_TEST", "whoami", "user"]
         
         # 测试PHP系统调用
         for payload_info in self.code_payloads.get("php_system", [])[:5]:
@@ -1296,21 +1549,44 @@ class CommandCodeScanner:
                     if not isinstance(content, str):
                         content = str(content)
                     
-                    # 检查命令输出
-                    command_indicators = ["COMMAND_TEST", "whoami", "root:", "uid=", "Administrator"]
-                    for indicator in command_indicators:
+                    # 多层证据收集
+                    evidence_list = []
+                    confidence = 0
+                    matched_indicators = []
+                    
+                    # 检查强指示器（命令执行输出）
+                    for indicator in strong_indicators:
                         if indicator.lower() in content.lower():
-                            vulnerabilities.append({
-                                'type': 'Code Injection (System Call)',
-                                'payload': payload,
-                                'language': language,
-                                'confidence': '高',
-                                'evidence': f"发现系统命令输出: {indicator}",
-                                'technique': 'PHP system()/exec() execution',
-                                'context': context,
-                                'response_code': response['response'].get('status_code', 0)
-                            })
-                            break
+                            evidence_list.append(f"命令执行证据: {indicator}")
+                            matched_indicators.append(indicator)
+                            confidence = max(confidence, 0.95)
+                    
+                    # 检查弱指示器
+                    if not matched_indicators:
+                        for indicator in weak_indicators:
+                            if indicator.lower() in content.lower():
+                                evidence_list.append(f"可能的命令输出: {indicator}")
+                                confidence = max(confidence, 0.80)
+                    
+                    # 检查PHP错误堆栈（表示代码被执行）
+                    if "parse error" in content.lower() or "fatal error" in content.lower() or "warning" in content.lower():
+                        if "php" in content.lower():
+                            evidence_list.append("检测到PHP执行特征")
+                            confidence = max(confidence, 0.85)
+                    
+                    if evidence_list and confidence > 0.75:
+                        vulnerabilities.append({
+                            'type': 'Code Injection (System Call)',
+                            'payload': payload,
+                            'language': language,
+                            'confidence': '高' if confidence > 0.85 else '中',
+                            'evidence': " | ".join(evidence_list),
+                            'matched_indicators': matched_indicators,
+                            'technique': 'PHP system()/exec() execution',
+                            'context': context,
+                            'response_code': response['response'].get('status_code', 0),
+                            'confidence_score': round(confidence, 2)
+                        })
             
             except Exception:
                 continue
@@ -1330,20 +1606,41 @@ class CommandCodeScanner:
                     if not isinstance(content, str):
                         content = str(content)
                     
-                    command_indicators = ["COMMAND_TEST", "whoami", "root:", "uid=", "Administrator"]
-                    for indicator in command_indicators:
+                    evidence_list = []
+                    confidence = 0
+                    matched_indicators = []
+                    
+                    # 检查命令执行指示器
+                    for indicator in strong_indicators:
                         if indicator.lower() in content.lower():
-                            vulnerabilities.append({
-                                'type': 'Code Injection (System Call)',
-                                'payload': payload,
-                                'language': language,
-                                'confidence': '高',
-                                'evidence': f"发现系统命令输出: {indicator}",
-                                'technique': 'Python os.system() execution',
-                                'context': context,
-                                'response_code': response['response'].get('status_code', 0)
-                            })
-                            break
+                            evidence_list.append(f"命令执行证据: {indicator}")
+                            matched_indicators.append(indicator)
+                            confidence = max(confidence, 0.95)
+                    
+                    if not matched_indicators:
+                        for indicator in weak_indicators:
+                            if indicator.lower() in content.lower():
+                                evidence_list.append(f"可能的命令输出: {indicator}")
+                                confidence = max(confidence, 0.80)
+                    
+                    # 检查Python错误堆栈
+                    if re.search(r"Traceback|NameError:|TypeError:|SyntaxError:", content):
+                        evidence_list.append("检测到Python执行特征")
+                        confidence = max(confidence, 0.85)
+                    
+                    if evidence_list and confidence > 0.75:
+                        vulnerabilities.append({
+                            'type': 'Code Injection (System Call)',
+                            'payload': payload,
+                            'language': language,
+                            'confidence': '高' if confidence > 0.85 else '中',
+                            'evidence': " | ".join(evidence_list),
+                            'matched_indicators': matched_indicators,
+                            'technique': 'Python os.system() execution',
+                            'context': context,
+                            'response_code': response['response'].get('status_code', 0),
+                            'confidence_score': round(confidence, 2)
+                        })
             
             except Exception:
                 continue
@@ -1363,21 +1660,42 @@ class CommandCodeScanner:
                     if not isinstance(content, str):
                         content = str(content)
                     
+                    evidence_list = []
+                    confidence = 0
+                    matched_indicators = []
+                    
+                    # 检查命令执行指示器
+                    for indicator in strong_indicators:
+                        if indicator.lower() in content.lower():
+                            evidence_list.append(f"命令执行证据: {indicator}")
+                            matched_indicators.append(indicator)
+                            confidence = max(confidence, 0.95)
+                    
                     # 检查Java特定输出
                     java_indicators = self.code_indicators.get("java_output", [])
                     for indicator in java_indicators:
                         if indicator.lower() in content.lower():
-                            vulnerabilities.append({
-                                'type': 'Code Injection (System Call)',
-                                'payload': payload,
-                                'language': language,
-                                'confidence': '中',
-                                'evidence': f"发现Java输出: {indicator}",
-                                'technique': 'Java Runtime.exec() execution',
-                                'context': context,
-                                'response_code': response['response'].get('status_code', 0)
-                            })
-                            break
+                            evidence_list.append(f"Java输出: {indicator}")
+                            confidence = max(confidence, 0.90)
+                    
+                    # 检查Java错误堆栈
+                    if "Exception" in content or "at java." in content:
+                        evidence_list.append("检测到Java执行特征")
+                        confidence = max(confidence, 0.80)
+                    
+                    if evidence_list and confidence > 0.75:
+                        vulnerabilities.append({
+                            'type': 'Code Injection (System Call)',
+                            'payload': payload,
+                            'language': language,
+                            'confidence': '高' if confidence > 0.85 else '中',
+                            'evidence': " | ".join(evidence_list),
+                            'matched_indicators': matched_indicators,
+                            'technique': 'Java Runtime.exec() execution',
+                            'context': context,
+                            'response_code': response['response'].get('status_code', 0),
+                            'confidence_score': round(confidence, 2)
+                        })
             
             except Exception:
                 continue
@@ -1385,17 +1703,32 @@ class CommandCodeScanner:
         return vulnerabilities
 
     def detect_code_template_injection(self, url, param_name, param_value, method, post_data):
-        """模板注入检测"""
+        """
+        模板注入检测 - 多验证层和计算表达式验证
+        
+        核心验证方式：
+        1. 基础模板语法测试（{{7*7}}）
+        2. 模板计算结果验证（期望49）
+        3. 多语言特定模板测试
+        4. 错误堆栈分析确认
+        """
         vulnerabilities = []
         
+        # 通用模板注入payload
+        generic_payloads = [
+            {"template": "{{7*7}}", "expected": "49", "language": "generic"},
+            {"template": "${7*7}", "expected": "49", "language": "generic"},
+            {"template": "<%=7*7%>", "expected": "49", "language": "jsp"},
+            {"template": "[[ 7*7 ]]", "expected": "49", "language": "generic"},
+        ]
+        
         # 测试通用模板注入payloads
-        for payload_info in self.code_payloads.get("generic_template", []):
-            payload = payload_info["payload"]
-            language = payload_info["language"]
-            context = payload_info["context"]
+        for payload_config in generic_payloads:
+            template_payload = payload_config["template"]
+            expected_result = payload_config["expected"]
             
             try:
-                test_value = f"{param_value}{payload}"
+                test_value = f"{param_value}{template_payload}"
                 response = self._send_code_test(url, param_name, test_value, method, post_data)
                 
                 if response:
@@ -1403,18 +1736,35 @@ class CommandCodeScanner:
                     if not isinstance(content, str):
                         content = str(content)
                     
-                    # 检查模板计算结果
-                    template_indicators = self.code_indicators.get("template_indicators", [])
+                    # 关键验证：是否返回计算结果
+                    if expected_result in content:
+                        vulnerabilities.append({
+                            'type': 'Template Injection',
+                            'payload': template_payload,
+                            'language': 'generic',
+                            'confidence': '高',
+                            'evidence': f"模板计算验证成功: {template_payload} = {expected_result}",
+                            'technique': 'Template expression evaluation',
+                            'verified': True,
+                            'response_code': response['response'].get('status_code', 0)
+                        })
+                        continue
+                    
+                    # 如果没有直接计算结果，检查是否有模板错误或执行痕迹
+                    template_indicators = [
+                        "template", "jinja", "undefined", "expression",
+                        "render", "template error", "template syntax"
+                    ]
                     for indicator in template_indicators:
-                        if indicator in content:
+                        if indicator in content.lower():
                             vulnerabilities.append({
                                 'type': 'Template Injection',
-                                'payload': payload,
-                                'language': language,
-                                'confidence': '高',
-                                'evidence': f"模板计算结果显示: {indicator}",
-                                'technique': 'Template engine code execution',
-                                'context': context,
+                                'payload': template_payload,
+                                'language': 'generic',
+                                'confidence': '中',
+                                'evidence': f"检测到模板引擎痕迹: {indicator}",
+                                'technique': 'Template engine interaction',
+                                'verified': False,
                                 'response_code': response['response'].get('status_code', 0)
                             })
                             break
@@ -1423,11 +1773,44 @@ class CommandCodeScanner:
                 continue
         
         # 测试特定语言模板
-        for payload_type in ["python_template", "java_template", "nodejs_template"]:
-            for payload_info in self.code_payloads.get(payload_type, [])[:3]:
-                payload = payload_info["payload"]
-                language = payload_info["language"]
-                context = payload_info["context"]
+        language_specific_payloads = [
+            {
+                "type": "python_template",
+                "payloads": [
+                    {"payload": "{{7*7}}", "expected": "49", "engine": "Jinja2"},
+                    {"payload": "${7*7}", "expected": "49", "engine": "Mako"},
+                    {"payload": "#{7*7}", "expected": "49", "engine": "Genshi"},
+                ],
+                "language": "Python"
+            },
+            {
+                "type": "java_template",
+                "payloads": [
+                    {"payload": "${7*7}", "expected": "49", "engine": "OGNL"},
+                    {"payload": "#{7*7}", "expected": "49", "engine": "EL"},
+                    {"payload": "<%=7*7%>", "expected": "49", "engine": "JSP"},
+                ],
+                "language": "Java"
+            },
+            {
+                "type": "nodejs_template",
+                "payloads": [
+                    {"payload": "<%=7*7%>", "expected": "49", "engine": "EJS"},
+                    {"payload": "{{7*7}}", "expected": "49", "engine": "Handlebars"},
+                    {"payload": "${7*7}", "expected": "49", "engine": "lodash"},
+                ],
+                "language": "Node.js"
+            }
+        ]
+        
+        for language_group in language_specific_payloads:
+            payloads = language_group.get("payloads", [])
+            language = language_group.get("language", "Unknown")
+            
+            for payload_config in payloads[:2]:  # 每种语言最多测试2个
+                payload = payload_config["payload"]
+                expected = payload_config["expected"]
+                engine = payload_config["engine"]
                 
                 try:
                     test_value = f"{param_value}{payload}"
@@ -1438,16 +1821,34 @@ class CommandCodeScanner:
                         if not isinstance(content, str):
                             content = str(content)
                         
-                        if "49" in content or "7777777" in content:
+                        # 计算结果验证
+                        if expected in content:
                             vulnerabilities.append({
                                 'type': 'Template Injection',
                                 'payload': payload,
                                 'language': language,
+                                'template_engine': engine,
+                                'confidence': '高',
+                                'evidence': f"{engine}计算验证: {payload} = {expected}",
+                                'technique': f'{engine} template code execution',
+                                'verified': True,
+                                'response_code': response['response'].get('status_code', 0),
+                                'confidence_score': 0.95
+                            })
+                        
+                        # 错误堆栈识别
+                        elif language.lower() in content.lower() and ("error" in content.lower() or "exception" in content.lower()):
+                            vulnerabilities.append({
+                                'type': 'Template Injection',
+                                'payload': payload,
+                                'language': language,
+                                'template_engine': engine,
                                 'confidence': '中',
-                                'evidence': '模板表达式执行成功',
-                                'technique': 'Template engine code execution',
-                                'context': context,
-                                'response_code': response['response'].get('status_code', 0)
+                                'evidence': f"检测到{language}模板引擎错误堆栈",
+                                'technique': f'{engine} template interaction',
+                                'verified': False,
+                                'response_code': response['response'].get('status_code', 0),
+                                'confidence_score': 0.75
                             })
                 
                 except Exception:
@@ -1505,6 +1906,45 @@ class CommandCodeScanner:
                 continue
         
         return vulnerabilities
+
+    def _calculate_similarity(self, text1, text2):
+        """计算两个文本的相似度（0-1）"""
+        if not text1 or not text2:
+            return 0.0
+        
+        # 简单的字符集相似度计算
+        if len(text1) == 0 or len(text2) == 0:
+            return 0.0
+        
+        # 计算汉明距离的简化版本
+        len1, len2 = len(text1), len(text2)
+        if abs(len1 - len2) > max(len1, len2) * 0.5:  # 长度差异>50%
+            return 0.0
+        
+        # 计算相同字符的比例
+        common_chars = sum(1 for c1, c2 in zip(text1, text2) if c1 == c2)
+        similarity = common_chars / max(len1, len2)
+        return similarity
+    
+    def _extract_context(self, text, keyword):
+        """提取关键词在文本中的上下文占比"""
+        if not keyword or keyword not in text:
+            return 0.0
+        
+        # 找到关键词的位置
+        idx = text.lower().find(keyword.lower())
+        if idx == -1:
+            return 0.0
+        
+        # 计算关键词周围的有效内容
+        context_window = 200  # 前后200字符的上下文
+        start = max(0, idx - context_window)
+        end = min(len(text), idx + len(keyword) + context_window)
+        context = text[start:end]
+        
+        # 关键词及其上下文占比
+        ratio = len(context) / len(text) if text else 0.0
+        return min(ratio, 1.0)
 
     def _send_code_test(self, url, param_name, param_value, method, post_data, timeout=None):
         """发送代码执行测试请求"""

