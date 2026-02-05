@@ -830,7 +830,7 @@ pre {{ background-color: #f5c6cb; padding: 15px; border-radius: 5px; overflow: a
             else:
                 url_str = str(url)
             
-            # 根据置信度设置风险等级
+            # 根据可信度设置风险等级
             if confidence == "高" or confidence == "high" or confidence == "critical":
                 risk_class = "risk-high"
                 risk_label = "高风险"
@@ -883,7 +883,7 @@ pre {{ background-color: #f5c6cb; padding: 15px; border-radius: 5px; overflow: a
                             <span class="vuln-detail-value"><code>''' + html_module.escape(str(url_str))[:100] + '''</code></span>
                         </div>
                         <div class="vuln-detail-item">
-                            <span class="vuln-detail-label"><i class="fas fa-shield-alt"></i> 置信度:</span>
+                            <span class="vuln-detail-label"><i class="fas fa-shield-alt"></i> 可信度:</span>
                             <span class="vuln-detail-value">''' + html_module.escape(str(confidence)) + '''</span>
                         </div>
                     </div>
@@ -947,7 +947,7 @@ pre {{ background-color: #f5c6cb; padding: 15px; border-radius: 5px; overflow: a
             else:
                 url_str = str(url)
             
-            # 根据置信度设置风险等级
+            # 根据可信度设置风险等级
             if confidence == "高" or confidence == "high" or confidence == "critical":
                 risk_class = "risk-critical"
                 risk_label = "严重"
@@ -997,7 +997,7 @@ pre {{ background-color: #f5c6cb; padding: 15px; border-radius: 5px; overflow: a
                             <span class="vuln-detail-value"><code>''' + html_module.escape(str(url_str))[:100] + '''</code></span>
                         </div>
                         <div class="vuln-detail-item">
-                            <span class="vuln-detail-label"><i class="fas fa-shield-alt"></i> 置信度:</span>
+                            <span class="vuln-detail-label"><i class="fas fa-shield-alt"></i> 可信度:</span>
                             <span class="vuln-detail-value">''' + html_module.escape(str(confidence)) + '''</span>
                         </div>
                         <div class="vuln-detail-item">
@@ -1072,7 +1072,7 @@ pre {{ background-color: #f5c6cb; padding: 15px; border-radius: 5px; overflow: a
             else:
                 url_str = str(url)
             
-            # 根据置信度设置风险等级
+            # 根据可信度设置风险等级
             if confidence == "高" or confidence == "high" or confidence == "critical":
                 risk_class = "risk-critical"
                 risk_label = "严重"
@@ -1122,7 +1122,7 @@ pre {{ background-color: #f5c6cb; padding: 15px; border-radius: 5px; overflow: a
                             <span class="vuln-detail-value"><code>''' + html_module.escape(str(url_str))[:100] + '''</code></span>
                         </div>
                         <div class="vuln-detail-item">
-                            <span class="vuln-detail-label"><i class="fas fa-shield-alt"></i> 置信度:</span>
+                            <span class="vuln-detail-label"><i class="fas fa-shield-alt"></i> 可信度:</span>
                             <span class="vuln-detail-value">''' + html_module.escape(str(confidence)) + '''</span>
                         </div>
                         <div class="vuln-detail-item">
@@ -1302,7 +1302,7 @@ pre {{ background-color: #f5c6cb; padding: 15px; border-radius: 5px; overflow: a
                         os_type = vuln.get('os', '')
                         language = vuln.get('language', '')
                         
-                        f.write(f"{i}. {vuln_type} (置信度: {confidence})\n")
+                        f.write(f"{i}. {vuln_type} (可信度: {confidence})\n")
                         if os_type:
                             f.write(f"   操作系统: {os_type}\n")
                         if language:

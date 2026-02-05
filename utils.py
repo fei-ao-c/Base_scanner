@@ -357,7 +357,7 @@ def save_text_summary(results, filepath):
                     f.write(f"\n  {i}. {vuln.get('name', '未知漏洞')}\n")
                     f.write(f"     描述: {vuln.get('description', '无描述')}\n")
                     f.write(f"     风险等级: {vuln.get('risk_level', '未知')}\n")
-                    f.write(f"     置信度: {vuln.get('confidence', '未知')}\n")
+                    f.write(f"     可信度: {vuln.get('confidence', '未知')}\n")
                     f.write(f"     位置: {vuln.get('location', '未知')}\n")
             else:
                 f.write("  未发现漏洞\n")
