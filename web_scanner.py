@@ -1542,9 +1542,17 @@ class sampilescanner:
         return False
 
 
-    def check_sql_injection(self, url, param_name=None, param_value=None, method="GET", post_data=None):
+    def check_sql_injection(self, url, param_name=None, param_value=None, method="GET", post_data=None, auto_detect_params=True):
         """
         全面的SQL注入检测入口
+    
+        Args:
+            url: 目标URL
+            param_name: 参数名（可选，如为空且auto_detect_params=True则自动测试多个参数）
+            param_value: 参数值（可选，默认为1）
+            method: HTTP方法
+            post_data: POST数据
+            auto_detect_params: 是否自动检测参数（默认开启）
     
         Returns:
             tuple: (漏洞列表, 扫描结果统计)

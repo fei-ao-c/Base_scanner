@@ -51,7 +51,7 @@ class VulnerabilityScanner:
         self.request_sender=RequestSender(
             timeout=self.config.get("request_timeout",10),
             verify_ssl=self.config.get("verify_ssl",False),
-            user_agent=self.config.get("user_agint"),
+            user_agent=self.config.get("user_agent"),
             proxies=self.config.get("proxies"),
             max_retries=self.config.get("max_retries",3),
         )
