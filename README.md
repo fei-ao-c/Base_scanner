@@ -1,30 +1,37 @@
+# Base Scanner
 
-
-# scanner
+[English](README.en.md) | 中文
 
 ## 介绍
 
-scanner 是一款功能强大的网络安全扫描工具，主要用于扫描网站存在的漏洞。目前具备端口扫描功能和请求控制功能，可以用来学习设计扫描工具，在此基础上可以扩展其他功能。
+Base Scanner 是一款功能强大的网络安全扫描工具，主要用于扫描网站存在的漏洞。支持端口扫描、Web漏洞扫描（SQL注入、XSS等），具备请求控制、速率限制等功能。
 
 ## 软件架构
 
 ```
-scanner/
-├── scanner.py           # 主程序入口，扫描器核心
-├── port_scanner.py      # 端口扫描器
-├── web_scanner.py       # 网站漏洞扫描器
-├── log_viewer.py        # 日志查看器
-├── logging_config.py    # 日志配置
-├── utils.py             # 工具函数
-├── config/
-│   └── config.json      # 配置文件
-├── modules/             # 请求处理模块
-│   ├── request_builder.py   # 请求构建器
-│   ├── request_manager.py   # 请求管理器
-│   ├── request_queue.py     # 请求队列
-│   ├── request_sender.py    # 请求发送器
-│   └── response_parse.py    # 响应解析器
-└── logs/                # 日志目录
+Base_scanner/
+├── scanner.py              # 主程序入口
+├── port_scanner.py         # 端口扫描器
+├── web_scanner.py          # Web漏洞扫描器
+├── commodity_code.py       # 商品编码扫描
+├── utils.py                # 工具函数
+├── config/                 # 配置文件目录
+│   ├── config.json
+│   ├── code_payloads.json
+│   ├── command_payloads.json
+│   └── logging_config.py
+├── modules/                # 请求处理模块
+│   ├── request_builder.py
+│   ├── request_manager.py
+│   ├── request_queue.py
+│   ├── request_sender.py
+│   └── response_parse.py
+├── payload/                # 漏洞检测Payload
+│   ├── xss.json           # XSS Payload库
+│   └── sql_injection.json # SQL注入Payload库
+└── tools/                 # 辅助工具
+    ├── log_viewer.py
+    └── report_generator.py
 ```
 
 ## 功能特点
@@ -34,19 +41,60 @@ scanner/
 - 多线程并发扫描
 - 自动识别常见服务类型
 
-### 漏洞扫描
-- SQL 注入检测
-- XSS 跨站脚本检测
-- 链接爬取功能
+### Web漏洞扫描
+
+#### SQL注入检测
+- 基于错误的注入检测
+- 布尔盲注检测
+- 时间盲注检测
+- 联合查询注入检测
+- 堆叠查询检测
+- 支持多种数据库：MySQL、MSSQL、PostgreSQL、Oracle、SQLite
+- NoSQL注入支持：MongoDB、Redis、Elasticsearch、DynamoDB、Firebase
+
+#### XSS检测
+- 反射型XSS检测
+- 存储型XSS检测
+- DOM型XSS检测
+- 多种编码绕过检测
+- 上下文分析检测
+
+#### Payload库
+- **XSS**: 378+ 个Payloads
+  - Basic XSS: 240个
+  - DOM-based: 41个
+  - JSON XSS: 16个
+  - Angular: 16个
+  - Template Injection: 24个
+  - Bypass Techniques: 25个
+  - Context-specific: 4类
+
+- **SQL注入**: 250+ 个Payloads
+  - Generic: 32个
+  - MySQL: 25个
+  - MSSQL: 58个
+  - PostgreSQL: 6个
+  - Oracle: 12个
+  - NoSQL: 98个
+
+#### 注入点参数列表
+- URL参数: 176个
+- 表单字段: 126个
+- JSON参数: 102个
+- Cookie: 51个
+- Header: 31个
+- 路径参数: 78个
+- XML参数: 35个
 
 ### 请求控制
 - 速率限制（每秒/每分钟请求数）
 - 最大并发请求控制
 - 请求超时设置
-- SSL 证书验证控制
+- SSL证书验证控制
+- 请求重试机制
 
 ### 日志管理
-- 支持文本和 JSON 格式日志
+- 支持文本和JSON格式日志
 - 日志查看和分析功能
 - 扫描结果导出
 
@@ -55,7 +103,7 @@ scanner/
 1. 克隆代码到本地：
 ```bash
 git clone https://github.com/fei-ao-c/Base_scanner.git
-cd scanner
+cd Base_scanner
 ```
 
 2. 安装依赖库：
@@ -71,16 +119,52 @@ pip install -r requirements.txt
 python scanner.py -h
 ```
 
-### 扫描指定目标的端口
+### 端口扫描
 
 ```bash
 python scanner.py 192.168.1.1 -p 1-1000
 ```
 
-### 扫描并输出报告
+### SQL注入扫描
 
-```bash
-python scanner.py example.com -p 1-1000 -o json
+```python
+from web_scanner import sampilescanner
+
+scanner = sampilescanner()
+
+# 指定参数测试
+vulns, results = scanner.check_sql_injection(
+    "http://example.com/page?id=1",
+    param_name="id",
+    param_value="1"
+)
+
+# 自动检测参数测试
+vulns, results = scanner.check_sql_injection(
+    "http://example.com/page",
+    auto_detect_params=True
+)
+```
+
+### XSS扫描
+
+```python
+from web_scanner import sampilescanner
+
+scanner = sampilescanner()
+
+# 指定参数测试
+vulns, results = scanner.check_xss(
+    "http://example.com/search?q=test",
+    method="GET"
+)
+
+# POST表单测试
+vulns, results = scanner.check_xss(
+    "http://example.com/comment",
+    method="POST",
+    data={"content": "test"}
+)
 ```
 
 ### 设置并发数和请求速率
@@ -148,10 +232,10 @@ options:
 ## 输出说明
 
 扫描结果会保存在 `output` 目录下：
-- `scan_results_xxx.json` - JSON 格式的详细扫描结果
+- `scan_results_xxx.json` - JSON格式的详细扫描结果
 - `scan_results_xxx_summary.txt` - 文本格式的扫描摘要
 
-## ⚠️ 安全与道德使用声明
+## 安全与道德使用声明
 
 **本工具仅限于：**
 - 您拥有明确书面授权进行测试的系统
@@ -168,3 +252,7 @@ options:
 ## 许可证
 
 本项目遵循开源协议，具体许可证信息请查看项目根目录下的 LICENSE 文件。
+
+## 贡献者
+
+欢迎提交Issue和Pull Request！
